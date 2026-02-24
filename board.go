@@ -217,6 +217,7 @@ func (b *board) View() string {
 	helpView := b.help.View(keys)
 
 	full := lipgloss.JoinVertical(lipgloss.Left,
+		"", // breathing room above column headings
 		columnsView,
 		indicator,
 		errView,
@@ -538,8 +539,8 @@ func (b *board) resizeColumns() {
 		return
 	}
 
-	// Reserve space for help bar and position indicator
-	colHeight := b.termHeight - 4
+	// Reserve space for top padding, help bar, and position indicator
+	colHeight := b.termHeight - 5
 	if colHeight < 5 {
 		colHeight = 5
 	}
