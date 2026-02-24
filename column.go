@@ -59,7 +59,9 @@ type column struct {
 }
 
 func newColumn(idx columnIndex) column {
-	delegate := list.NewDefaultDelegate()
+	// Start with blurred delegate so unfocused columns never show
+	// selection highlights. The board calls Focus() on column 0.
+	delegate := newBlurredDelegate()
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.Title = columnTitles[idx]
 	l.SetShowHelp(false)
@@ -70,7 +72,6 @@ func newColumn(idx columnIndex) column {
 	return column{
 		index: idx,
 		list:  l,
-		focus: idx == colBacklog,
 	}
 }
 

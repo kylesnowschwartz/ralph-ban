@@ -48,6 +48,7 @@ func newBoard(store *beadslite.Store) *board {
 		cols:  cols,
 		help:  help.New(),
 	}
+	b.cols[b.focused].Focus()
 	return b
 }
 
@@ -144,7 +145,15 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Help):
 			b.help.ShowAll = !b.help.ShowAll
 			return b, nil
+
+		case key.Matches(msg, keys.Suspend):
+			return b, tea.Suspend
 		}
+
+	case tea.ResumeMsg:
+		// Returning from ctrl+z suspend. Re-fire a refresh so the
+		// board picks up any changes made while backgrounded.
+		return b, b.loadFromStore()
 	}
 
 	// Forward remaining messages to the focused column

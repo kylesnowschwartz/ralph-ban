@@ -18,84 +18,89 @@ type keyMap struct {
 	PriorityDn key.Binding
 	Help       key.Binding
 	Quit       key.Binding
+	Suspend    key.Binding
 	Back       key.Binding
 }
 
 var keys = keyMap{
 	Up: key.NewBinding(
 		key.WithKeys("up", "k"),
-		key.WithHelp("k/up", "up"),
+		key.WithHelp("k/↑", "up"),
 	),
 	Down: key.NewBinding(
 		key.WithKeys("down", "j"),
-		key.WithHelp("j/down", "down"),
+		key.WithHelp("j/↓", "down"),
 	),
 	Left: key.NewBinding(
 		key.WithKeys("left", "h"),
-		key.WithHelp("h/left", "left"),
+		key.WithHelp("h/←", "left"),
 	),
 	Right: key.NewBinding(
 		key.WithKeys("right", "l"),
-		key.WithHelp("l/right", "right"),
+		key.WithHelp("l/→", "right"),
 	),
 	New: key.NewBinding(
 		key.WithKeys("n"),
-		key.WithHelp("n", " new"),
+		key.WithHelp("n", "new"),
 	),
 	Edit: key.NewBinding(
 		key.WithKeys("e"),
-		key.WithHelp("e", "󰏫 edit"),
+		key.WithHelp("e", "edit"),
 	),
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
-		key.WithHelp("d", "󰆴 delete"),
+		key.WithHelp("d", "delete"),
 	),
 	MoveRight: key.NewBinding(
 		key.WithKeys("enter"),
-		key.WithHelp("⏎", "󰁔 move right"),
+		key.WithHelp("⏎", "move →"),
 	),
 	MoveLeft: key.NewBinding(
 		key.WithKeys("backspace"),
-		key.WithHelp("⌫", "󰁍 move left"),
+		key.WithHelp("⌫", "move ←"),
 	),
 	Undo: key.NewBinding(
 		key.WithKeys("u"),
-		key.WithHelp("u", "󰕌 undo"),
+		key.WithHelp("u", "undo"),
 	),
 	Detail: key.NewBinding(
 		key.WithKeys(" "),
-		key.WithHelp("space", "󰋼 detail"),
+		key.WithHelp("space", "detail"),
 	),
 	PriorityUp: key.NewBinding(
 		key.WithKeys("+", "="),
-		key.WithHelp("+", "󰁞 priority up"),
+		key.WithHelp("+", "pri ↑"),
 	),
 	PriorityDn: key.NewBinding(
 		key.WithKeys("-"),
-		key.WithHelp("-", "󰁆 priority down"),
+		key.WithHelp("-", "pri ↓"),
 	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),
-		key.WithHelp("?", "󰋖 help"),
+		key.WithHelp("?", "more"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),
-		key.WithHelp("C-c", "󰈆 quit"),
+		key.WithHelp("C-c", "quit"),
+	),
+	Suspend: key.NewBinding(
+		key.WithKeys("ctrl+z"),
+		key.WithHelp("C-z", "suspend"),
 	),
 	Back: key.NewBinding(
 		key.WithKeys("esc"),
-		key.WithHelp("esc", "󰜺 back"),
+		key.WithHelp("esc", "back"),
 	),
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.New, k.MoveRight, k.MoveLeft, k.Undo, k.Help, k.Quit}
+	return []key.Binding{k.New, k.Edit, k.MoveRight, k.MoveLeft, k.Detail, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.New, k.Edit, k.Delete, k.MoveRight, k.MoveLeft, k.Undo, k.Detail, k.PriorityUp, k.PriorityDn},
-		{k.Help, k.Quit, k.Back},
+		{k.Help, k.Quit, k.Suspend, k.Back},
 	}
 }
