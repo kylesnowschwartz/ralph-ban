@@ -158,7 +158,8 @@ func (c *column) View() string {
 	return c.getStyle().Render(c.list.View())
 }
 
-// moveRight removes the selected card and emits a moveMsg to the next column.
+// moveRight validates and emits a moveMsg to the next column.
+// The actual list mutation happens in board.handleMove for atomicity.
 func (c *column) moveRight() tea.Cmd {
 	cd, ok := c.SelectedCard()
 	if !ok {
@@ -170,15 +171,13 @@ func (c *column) moveRight() tea.Cmd {
 		return nil
 	}
 
-	idx := c.list.Index()
-	c.list.RemoveItem(idx)
-
 	return func() tea.Msg {
 		return moveMsg{card: cd, source: c.index, target: target}
 	}
 }
 
-// moveLeft removes the selected card and emits a moveMsg to the previous column.
+// moveLeft validates and emits a moveMsg to the previous column.
+// The actual list mutation happens in board.handleMove for atomicity.
 func (c *column) moveLeft() tea.Cmd {
 	cd, ok := c.SelectedCard()
 	if !ok {
@@ -189,9 +188,6 @@ func (c *column) moveLeft() tea.Cmd {
 		return nil
 	}
 	target := c.index - 1
-
-	idx := c.list.Index()
-	c.list.RemoveItem(idx)
 
 	return func() tea.Msg {
 		return moveMsg{card: cd, source: c.index, target: target}
