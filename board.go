@@ -44,10 +44,16 @@ func newBoard(store *beadslite.Store) *board {
 		cols[i] = newColumn(i)
 	}
 
+	h := help.New()
+	// Add visual separation between key and description in help bar.
+	// Without this, "n new" reads as one word.
+	h.Styles.ShortKey = h.Styles.ShortKey.Bold(true).PaddingRight(1)
+	h.Styles.FullKey = h.Styles.FullKey.Bold(true).PaddingRight(1)
+
 	b := &board{
 		store: store,
 		cols:  cols,
-		help:  help.New(),
+		help:  h,
 	}
 	b.cols[b.focused].Focus()
 	return b
