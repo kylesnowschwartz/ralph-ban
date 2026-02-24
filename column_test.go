@@ -77,3 +77,18 @@ func TestNumColumns(t *testing.T) {
 		t.Errorf("numColumns = %d, want 5", numColumns)
 	}
 }
+
+func TestConfirmDeleteResetsOnBlur(t *testing.T) {
+	c := newColumn(colTodo)
+	c.Focus()
+	c.confirmDelete = true
+
+	c.Blur()
+
+	if c.confirmDelete {
+		t.Error("Blur() should reset confirmDelete to false")
+	}
+	if c.focus {
+		t.Error("Blur() should set focus to false")
+	}
+}

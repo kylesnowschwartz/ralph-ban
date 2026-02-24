@@ -6,6 +6,7 @@ import beadslite "github.com/kylesnowschwartz/beads-lite"
 // The board intercepts this and routes it to the target column.
 type moveMsg struct {
 	card   card
+	source columnIndex
 	target columnIndex
 }
 
@@ -17,6 +18,12 @@ type saveMsg struct {
 // deleteMsg requests deletion of a card from the current column.
 type deleteMsg struct {
 	id string
+}
+
+// priorityMsg signals a priority change on the selected card.
+type priorityMsg struct {
+	card  card
+	delta int // -1 = higher priority (toward P0), +1 = lower (toward P4)
 }
 
 // errMsg carries an error from async operations (persistence, refresh).

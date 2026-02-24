@@ -50,11 +50,12 @@ var statusToColumn = map[beadslite.Status]columnIndex{
 
 // column wraps a bubbles/list.Model to display cards in one kanban column.
 type column struct {
-	index  columnIndex
-	list   list.Model
-	focus  bool
-	height int
-	width  int
+	index         columnIndex
+	list          list.Model
+	focus         bool
+	confirmDelete bool
+	height        int
+	width         int
 }
 
 func newColumn(idx columnIndex) column {
@@ -80,6 +81,7 @@ func (c *column) Focus() {
 
 func (c *column) Blur() {
 	c.focus = false
+	c.confirmDelete = false
 	c.list.SetDelegate(newBlurredDelegate())
 }
 
@@ -115,13 +117,28 @@ func (c *column) Update(msg tea.Msg) tea.Cmd {
 		if !c.focus {
 			return nil
 		}
+
+		// Confirm-delete: second d confirms, any other key cancels.
+		if c.confirmDelete {
+			c.confirmDelete = false
+			if key.Matches(msg, keys.Delete) {
+				return c.deleteCurrent()
+			}
+			// Fall through — handle the key normally.
+		}
+
 		switch {
 		case key.Matches(msg, keys.MoveRight):
 			return c.moveRight()
 		case key.Matches(msg, keys.MoveLeft):
 			return c.moveLeft()
 		case key.Matches(msg, keys.Delete):
-			return c.deleteCurrent()
+			c.confirmDelete = true
+			return nil
+		case key.Matches(msg, keys.PriorityUp):
+			return c.adjustPriority(-1)
+		case key.Matches(msg, keys.PriorityDn):
+			return c.adjustPriority(1)
 		}
 	}
 	c.list, cmd = c.list.Update(msg)
@@ -130,6 +147,13 @@ func (c *column) Update(msg tea.Msg) tea.Cmd {
 
 // View renders the column with a border that reflects focus state.
 func (c *column) View() string {
+	if c.confirmDelete {
+		saved := c.list.Title
+		c.list.Title = "Delete? d/esc"
+		view := c.getStyle().Render(c.list.View())
+		c.list.Title = saved
+		return view
+	}
 	return c.getStyle().Render(c.list.View())
 }
 
@@ -149,7 +173,7 @@ func (c *column) moveRight() tea.Cmd {
 	c.list.RemoveItem(idx)
 
 	return func() tea.Msg {
-		return moveMsg{card: cd, target: target}
+		return moveMsg{card: cd, source: c.index, target: target}
 	}
 }
 
@@ -169,7 +193,18 @@ func (c *column) moveLeft() tea.Cmd {
 	c.list.RemoveItem(idx)
 
 	return func() tea.Msg {
-		return moveMsg{card: cd, target: target}
+		return moveMsg{card: cd, source: c.index, target: target}
+	}
+}
+
+// adjustPriority emits a priorityMsg for the selected card.
+func (c *column) adjustPriority(delta int) tea.Cmd {
+	cd, ok := c.SelectedCard()
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		return priorityMsg{card: cd, delta: delta}
 	}
 }
 

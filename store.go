@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -21,7 +22,8 @@ func loadIssues(store *beadslite.Store) ([numColumns][]list.Item, error) {
 	return partitionByStatus(issues), nil
 }
 
-// partitionByStatus sorts issues into column buckets by status.
+// partitionByStatus sorts issues into column buckets by status,
+// with cards sorted by priority within each column (P0 first).
 func partitionByStatus(issues []*beadslite.Issue) [numColumns][]list.Item {
 	var buckets [numColumns][]list.Item
 	for _, issue := range issues {
@@ -30,6 +32,13 @@ func partitionByStatus(issues []*beadslite.Issue) [numColumns][]list.Item {
 			continue // skip unknown statuses
 		}
 		buckets[col] = append(buckets[col], card{issue: issue})
+	}
+	for i := range buckets {
+		sort.Slice(buckets[i], func(a, b int) bool {
+			ca := buckets[i][a].(card)
+			cb := buckets[i][b].(card)
+			return ca.issue.Priority < cb.issue.Priority
+		})
 	}
 	return buckets
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sort"
+
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -20,9 +22,14 @@ type board struct {
 	quitting bool
 	err      error
 
-	// Form state: when non-nil, the form overlay is active.
-	form     *form
-	formMode bool
+	// Overlay state: form for create/edit, detail for viewing a card.
+	form       *form
+	formMode   bool
+	detail     *detail
+	detailMode bool
+
+	// Single-level undo for accidental moves.
+	lastMove *moveMsg
 
 	// Layout panning
 	termWidth  int
@@ -52,23 +59,46 @@ func (b *board) Init() tea.Cmd {
 }
 
 func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// If form is active, route all input there
-	if b.formMode {
-		return b.updateForm(msg)
-	}
-
+	// Cross-cutting messages handled before overlay routing.
+	// This prevents errMsg, refreshMsg, and resize from being silently
+	// dropped when a form or detail overlay is active.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		b.termWidth = msg.Width
 		b.termHeight = msg.Height
+		b.help.Width = msg.Width
 		b.loaded = true
+		if b.form != nil {
+			b.form.width = msg.Width
+			b.form.height = msg.Height
+		}
+		if b.detail != nil {
+			b.detail.width = msg.Width
+			b.detail.height = msg.Height
+		}
 		b.updatePan()
 		b.resizeColumns()
 		return b, nil
 
 	case refreshMsg:
+		b.err = nil
 		b.applyRefresh(msg.issues)
 		return b, tickRefresh(b.store)
+
+	case errMsg:
+		b.err = msg.err
+		return b, nil
+	}
+
+	// Overlay-specific routing
+	if b.detailMode {
+		return b.updateDetail(msg)
+	}
+	if b.formMode {
+		return b.updateForm(msg)
+	}
+
+	switch msg := msg.(type) {
 
 	case moveMsg:
 		return b, b.handleMove(msg)
@@ -76,12 +106,11 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case deleteMsg:
 		return b, persistDelete(b.store, msg.id)
 
+	case priorityMsg:
+		return b, b.handlePriority(msg)
+
 	case saveMsg:
 		return b, b.handleSave(msg)
-
-	case errMsg:
-		b.err = msg.err
-		return b, nil
 
 	case tea.KeyMsg:
 		switch {
@@ -105,6 +134,13 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.openEditForm()
 			return b, textinputBlink()
 
+		case key.Matches(msg, keys.Detail):
+			b.openDetail()
+			return b, nil
+
+		case key.Matches(msg, keys.Undo):
+			return b, b.undoLastMove()
+
 		case key.Matches(msg, keys.Help):
 			b.help.ShowAll = !b.help.ShowAll
 			return b, nil
@@ -122,6 +158,9 @@ func (b *board) View() string {
 	}
 	if !b.loaded {
 		return "Loading..."
+	}
+	if b.detailMode && b.detail != nil {
+		return b.detail.View()
 	}
 	if b.formMode && b.form != nil {
 		return b.form.View()
@@ -150,12 +189,14 @@ func (b *board) View() string {
 
 	helpView := b.help.View(keys)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	full := lipgloss.JoinVertical(lipgloss.Left,
 		boardView,
 		indicator,
 		errView,
 		helpView,
 	)
+
+	return lipgloss.NewStyle().MaxWidth(b.termWidth).Render(full)
 }
 
 // loadFromStore returns a command that loads all issues and sets up column items.
@@ -182,11 +223,18 @@ func (b *board) applyRefresh(issues []*beadslite.Issue) {
 }
 
 // handleMove inserts a card into the target column, shifts focus to follow it,
-// and persists the status change.
+// and persists the status change. Saves state for single-level undo.
 func (b *board) handleMove(msg moveMsg) tea.Cmd {
 	target := msg.target
 	if target < 0 || target >= numColumns {
 		return nil
+	}
+
+	// Save for undo before mutating the card's status.
+	b.lastMove = &moveMsg{
+		card:   msg.card,
+		source: msg.source,
+		target: msg.target,
 	}
 
 	msg.card.issue.Status = columnToStatus[target]
@@ -205,6 +253,73 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 	b.resizeColumns()
 
 	return persistMove(b.store, msg.card.issue.ID, target)
+}
+
+// handlePriority adjusts a card's priority, re-sorts the column, and persists.
+func (b *board) handlePriority(msg priorityMsg) tea.Cmd {
+	newPriority := msg.card.issue.Priority + msg.delta
+	if newPriority < 0 || newPriority > 4 {
+		return nil // already at boundary
+	}
+
+	msg.card.issue.Priority = newPriority
+
+	// Re-sort the focused column to reflect the new priority order
+	col := &b.cols[b.focused]
+	items := col.list.Items()
+	sort.Slice(items, func(a, bIdx int) bool {
+		ca := items[a].(card)
+		cb := items[bIdx].(card)
+		return ca.issue.Priority < cb.issue.Priority
+	})
+	col.SetItems(items)
+
+	// Re-select the card that was adjusted
+	for i, item := range col.list.Items() {
+		if c, ok := item.(card); ok && c.issue.ID == msg.card.issue.ID {
+			col.list.Select(i)
+			break
+		}
+	}
+
+	return persistUpdate(b.store, msg.card.issue)
+}
+
+// undoLastMove reverses the most recent card move.
+func (b *board) undoLastMove() tea.Cmd {
+	if b.lastMove == nil {
+		return nil
+	}
+
+	undo := b.lastMove
+	b.lastMove = nil
+
+	// Remove the card from where it landed
+	target := undo.target
+	items := b.cols[target].list.Items()
+	for i, item := range items {
+		if c, ok := item.(card); ok && c.issue.ID == undo.card.issue.ID {
+			b.cols[target].list.RemoveItem(i)
+			break
+		}
+	}
+
+	// Put it back in the source column
+	source := undo.source
+	undo.card.issue.Status = columnToStatus[source]
+	srcItems := b.cols[source].list.Items()
+	srcItems = append(srcItems, undo.card)
+	b.cols[source].SetItems(srcItems)
+
+	// Follow the card back
+	b.cols[b.focused].Blur()
+	b.focused = source
+	b.cols[b.focused].Focus()
+	b.cols[source].list.Select(len(srcItems) - 1)
+	b.updatePan()
+	b.resizeColumns()
+
+	return persistMove(b.store, undo.card.issue.ID, source)
 }
 
 // handleSave processes a form submission (create or edit).
@@ -276,6 +391,52 @@ func (b *board) openEditForm() {
 	b.formMode = true
 }
 
+// openDetail switches to detail mode showing the selected card.
+func (b *board) openDetail() {
+	cd, ok := b.cols[b.focused].SelectedCard()
+	if !ok {
+		return
+	}
+	d := newDetail(cd.issue, b.focused)
+	d.width = b.termWidth
+	d.height = b.termHeight
+	b.detail = &d
+	b.detailMode = true
+}
+
+// updateDetail routes messages to the detail overlay.
+// esc closes, e switches to edit form.
+func (b *board) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if key.Matches(msg, keys.Back) {
+			b.detailMode = false
+			b.detail = nil
+			return b, nil
+		}
+		if key.Matches(msg, keys.Edit) {
+			// Transition from detail to edit
+			issue := b.detail.issue
+			colIdx := b.detail.columnIndex
+			b.detailMode = false
+			b.detail = nil
+			f := editForm(issue, colIdx)
+			f.width = b.termWidth
+			f.height = b.termHeight
+			b.form = &f
+			b.formMode = true
+			return b, textinputBlink()
+		}
+	}
+
+	if b.detail != nil {
+		d, cmd := b.detail.Update(msg)
+		b.detail = &d
+		return b, cmd
+	}
+	return b, nil
+}
+
 // updateForm routes messages to the form overlay.
 func (b *board) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -285,18 +446,6 @@ func (b *board) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.form = nil
 			return b, nil
 		}
-	case tea.WindowSizeMsg:
-		b.termWidth = msg.Width
-		b.termHeight = msg.Height
-		if b.form != nil {
-			b.form.width = msg.Width
-			b.form.height = msg.Height
-		}
-		return b, nil
-	case refreshMsg:
-		// Still apply refreshes while form is open
-		b.applyRefresh(msg.issues)
-		return b, tickRefresh(b.store)
 	case saveMsg:
 		return b, b.handleSave(msg)
 	}

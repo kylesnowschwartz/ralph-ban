@@ -99,6 +99,37 @@ func TestPartitionByStatus_MultiplePerColumn(t *testing.T) {
 	}
 }
 
+func TestPartitionByStatus_PrioritySorting(t *testing.T) {
+	p4 := makeIssue("bl-p4", "Low Priority", beadslite.StatusTodo)
+	p4.Priority = 4
+	p0 := makeIssue("bl-p0", "Critical", beadslite.StatusTodo)
+	p0.Priority = 0
+	p2 := makeIssue("bl-p2", "Medium", beadslite.StatusTodo)
+	p2.Priority = 2
+
+	// Feed them in deliberately wrong order to prove sorting works.
+	issues := []*beadslite.Issue{p4, p0, p2}
+
+	buckets := partitionByStatus(issues)
+
+	todoItems := buckets[colTodo]
+	if len(todoItems) != 3 {
+		t.Fatalf("todo has %d items, want 3", len(todoItems))
+	}
+
+	got := make([]int, len(todoItems))
+	for i, item := range todoItems {
+		got[i] = item.(card).issue.Priority
+	}
+
+	want := []int{0, 2, 4}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("position %d: priority = %d, want %d", i, got[i], want[i])
+		}
+	}
+}
+
 func TestPartitionByStatus_UnknownStatusSkipped(t *testing.T) {
 	issues := []*beadslite.Issue{
 		makeIssue("bl-01", "Valid", beadslite.StatusTodo),

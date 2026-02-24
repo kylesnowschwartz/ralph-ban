@@ -46,6 +46,7 @@ func dumpBoard(store *beadslite.Store, width, height int, w io.Writer) error {
 	// Simulate initialization that normally happens via tea messages
 	b.termWidth = width
 	b.termHeight = height
+	b.help.Width = width
 	b.loaded = true
 	b.applyRefresh(issues)
 	b.cols[b.focused].Focus()
