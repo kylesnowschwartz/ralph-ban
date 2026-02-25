@@ -34,6 +34,22 @@ if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
   exit 0
 fi
 
+# Block on deep review queue — process before adding more work.
+review_count=$(count_review)
+if [ "$review_count" -ge 3 ] 2>/dev/null; then
+  state=$(read_board)
+  review_cards=$(echo "$state" | jq -r '
+    select(.status == "review")
+    | "\(.id): \(.title)"
+  ' 2>/dev/null || true)
+  jq -n --arg count "$review_count" --arg cards "$review_cards" '{
+    decision: "block",
+    reason: ("Review queue has " + $count + " cards — review before adding more work"),
+    systemMessage: ("Review queue has " + $count + " cards:\n" + $cards + "\nLaunch a review team: create reviewer agents in isolated worktrees, one per card. Approved cards get merged and closed. Rejected cards go back to doing with specific feedback. Process the queue before continuing other work.")
+  }'
+  exit 0
+fi
+
 # Surface which cards this agent still owns.
 # CLAUDE_AGENT_NAME lets callers override; defaults to "claude" for the primary session.
 AGENT_NAME="${CLAUDE_AGENT_NAME:-claude}"
