@@ -41,7 +41,17 @@ if [ "$stop_hook_active" = "true" ]; then
   exit 0
 fi
 
-# --- Team bypass: teammates exit freely ---
+# --- Block on uncommitted changes (all agents, including teammates) ---
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  jq -n '{
+    decision: "block",
+    reason: "Uncommitted changes — commit or stash as part of finishing your current task",
+    systemMessage: "The stop hook blocks exit when uncommitted changes exist. This prevents lost work. Commit your changes, then try stopping again. If the changes are experimental, stash them."
+  }'
+  exit 0
+fi
+
+# --- Team bypass: teammates exit freely after uncommitted check ---
 if [ -n "${CLAUDE_TEAM_NAME:-}" ]; then
   exit 0
 fi
@@ -54,16 +64,6 @@ fi
 
 # --- Check if beads-lite is initialized ---
 if ! db_exists; then
-  exit 0
-fi
-
-# --- Block on uncommitted changes ---
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-  jq -n '{
-    decision: "block",
-    reason: "Uncommitted changes — commit or stash as part of finishing your current task",
-    systemMessage: "The stop hook blocks exit when uncommitted changes exist. This prevents lost work. Commit your changes, then try stopping again. If the changes are experimental, stash them."
-  }'
   exit 0
 fi
 

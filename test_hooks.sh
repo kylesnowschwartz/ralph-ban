@@ -319,6 +319,21 @@ test_board_sync_tracks_stall() {
   teardown
 }
 
+test_stop_guard_blocks_teammate_uncommitted() {
+  setup
+  # Init git so git status --porcelain works
+  git init -q . >/dev/null 2>&1
+  echo "seed" > seed.txt
+  git add seed.txt && git commit -q -m "init" >/dev/null 2>&1
+  # Create a tracked-then-modified file so porcelain shows it
+  echo "dirty" >> seed.txt
+
+  local out
+  out=$(CLAUDE_TEAM_NAME=test-team "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "stop-guard blocks teammate with uncommitted changes"
+  teardown
+}
+
 # --- teammate-idle.sh ---
 
 test_teammate_idle_allows_no_cards() {
@@ -445,6 +460,7 @@ test_stop_guard_respects_disable_marker
 test_stop_guard_allows_worker_with_no_claimed_cards
 test_stop_guard_blocks_orchestrator_with_active_work
 test_board_sync_tracks_stall
+test_stop_guard_blocks_teammate_uncommitted
 test_teammate_idle_allows_no_cards
 test_teammate_idle_blocks_active_cards
 test_teammate_idle_allows_review_only
