@@ -3,7 +3,7 @@
 # Output: hookSpecificOutput.additionalContext (injected into Claude's initial context).
 # Exit 0 always — SessionStart cannot block.
 set -euo pipefail
-trap 'echo "{\"hookSpecificOutput\":{\"additionalContext\":\"Hook error in $(basename "$0"): $BASH_COMMAND failed\"}}" 2>/dev/null; exit 0' ERR
+trap 'echo "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Hook error in $(basename "$0"): $BASH_COMMAND failed\"}}" 2>/dev/null; exit 0' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
@@ -24,7 +24,7 @@ save_snapshot
 
 # Helper: output additionalContext JSON and exit.
 emit_context() {
-  jq -n --arg ctx "$1" '{hookSpecificOutput: {additionalContext: $ctx}}'
+  jq -n --arg ctx "$1" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
 }
 
 # Get ready work and suggest highest-priority item
@@ -46,4 +46,6 @@ status=$(echo "$first" | jq -r '.status // "unknown"')
 # Count totals
 total=$(echo "$ready" | wc -l | tr -d ' ')
 
-emit_context "Board has ${total} ready items. Highest priority: '${title}' (${id}, ${status}). Run \`bl claim ${id} --agent claude\` to start working on it."
+preamble=$(framework_preamble)
+emit_context "${preamble}
+Board has ${total} ready items. Highest priority: '${title}' (${id}, ${status}). Run \`bl claim ${id} --agent claude\` to start working on it."

@@ -28,8 +28,8 @@ fi
 if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
   jq -n '{
     decision: "block",
-    reason: "Uncommitted changes exist",
-    systemMessage: "You have uncommitted changes. Commit or stash before stopping."
+    reason: "Uncommitted changes — commit or stash as part of finishing your current task",
+    systemMessage: "The stop hook blocks exit when uncommitted changes exist. This prevents lost work. Commit your changes, then try stopping again. If the changes are experimental, stash them."
   }'
   exit 0
 fi
@@ -41,8 +41,8 @@ claimed=$("$BL" list --assigned-to "$AGENT_NAME" --json 2>/dev/null | jq -r 'sel
 if [ -n "$claimed" ]; then
   jq -n --arg claimed "$claimed" '{
     decision: "block",
-    reason: ("Claimed cards still active: " + $claimed),
-    systemMessage: ("You still own these cards:\n" + $claimed + "\nMove them to review/done or unclaim them before stopping.")
+    reason: "You still own active cards",
+    systemMessage: ("You have claimed cards that are not done:\n" + $claimed + "\nComplete them, move to review, or unclaim them. The orchestration framework blocks stopping while you own active work.")
   }'
   exit 0
 fi
@@ -53,8 +53,8 @@ read todo_count doing_count <<<"$(count_active)"
 if [ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ]; then
   jq -n --arg todo "$todo_count" --arg doing "$doing_count" '{
     decision: "block",
-    reason: ($todo + " todo, " + $doing + " doing items remain"),
-    systemMessage: ("Board has " + $todo + " items in Todo and " + $doing + " in Doing. Pick up the next task or ask the user if you should stop.")
+    reason: "Board has active work remaining",
+    systemMessage: ("Board has " + $todo + " todo and " + $doing + " doing items. Pick up the next task, or ask the user if they want you to stop despite remaining work.")
   }'
 else
   exit 0

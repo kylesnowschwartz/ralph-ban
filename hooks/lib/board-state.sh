@@ -2,6 +2,19 @@
 # Shared functions for reading and diffing board state.
 # Sourced by session-start.sh, board-sync.sh, stop-guard.sh, pre-compact.sh.
 
+# framework_preamble outputs a compact description of the orchestration lifecycle.
+# SessionStart and PreCompact include the full version; other hooks use a one-liner.
+framework_preamble() {
+  cat <<'PREAMBLE'
+Ralph-Ban Orchestration
+- SessionStart: board snapshot, suggested next task
+- UserPromptSubmit: board diffs, dispatch/review nudges, circuit breaker
+- Stop: blocks exit until work is clean (uncommitted changes, active cards)
+- PreCompact: re-injects board state before context compression
+Hook messages guide your workflow. They are not commands to react to immediately — stay focused on your current task and address blockers as part of your natural flow.
+PREAMBLE
+}
+
 # Anchor snapshot to git root so hooks work from any subdirectory or worktree.
 _GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 SNAPSHOT_FILE="${_GIT_ROOT}/.ralph-ban/.last-seen.json"

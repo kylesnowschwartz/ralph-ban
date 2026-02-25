@@ -4,7 +4,7 @@
 # Output: hookSpecificOutput.additionalContext (injected into Claude's context).
 # Exit 0 always — context injection only, never blocks prompts.
 set -euo pipefail
-trap 'echo "{\"hookSpecificOutput\":{\"additionalContext\":\"Hook error in $(basename "$0"): $BASH_COMMAND failed\"}}" 2>/dev/null; exit 0' ERR
+trap 'echo "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"Hook error in $(basename "$0"): $BASH_COMMAND failed\"}}" 2>/dev/null; exit 0' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
@@ -108,6 +108,8 @@ if [ -n "$review_nudge" ]; then
 fi
 
 if [ ${#parts[@]} -gt 0 ]; then
+  # Light lifecycle reminder — just enough to orient without repeating the full preamble.
+  parts=("Orchestration checkpoint: board sync follows." "${parts[@]}")
   message=$(printf '%s\n' "${parts[@]}")
-  jq -n --arg msg "$message" '{hookSpecificOutput: {additionalContext: $msg}}'
+  jq -n --arg msg "$message" '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $msg}}'
 fi
