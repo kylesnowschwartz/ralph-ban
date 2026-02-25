@@ -319,6 +319,68 @@ test_board_sync_tracks_stall() {
   teardown
 }
 
+# --- teammate-idle.sh ---
+
+test_teammate_idle_allows_no_cards() {
+  setup
+  bl create "Unrelated Task" >/dev/null
+  local input='{"teammate_name":"test-worker"}'
+  local out
+  out=$(echo "$input" | "$HOOKS_DIR/teammate-idle.sh" 2>/dev/null || true)
+  local exit_code
+  echo "$input" | "$HOOKS_DIR/teammate-idle.sh" >/dev/null 2>&1
+  exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: teammate-idle should allow exit when teammate has no claimed cards (got exit $exit_code)"
+  fi
+  teardown
+}
+
+test_teammate_idle_blocks_active_cards() {
+  setup
+  local create_out id
+  create_out=$(bl create "Worker Task")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  bl claim "$id" --agent test-worker >/dev/null 2>&1 || true
+
+  local input='{"teammate_name":"test-worker"}'
+  local exit_code=0
+  echo "$input" | "$HOOKS_DIR/teammate-idle.sh" >/dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 2 ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: teammate-idle should exit 2 when teammate owns doing card (got exit $exit_code)"
+  fi
+  teardown
+}
+
+test_teammate_idle_allows_review_only() {
+  setup
+  local create_out id
+  create_out=$(bl create "Review Task")
+  id=$(extract_id "$create_out")
+  # Claim first (moves to doing), then advance to review.
+  # This mirrors the real workflow: worker claims, implements, moves to review.
+  bl claim "$id" --agent test-worker >/dev/null 2>&1 || true
+  bl update "$id" --status review >/dev/null
+
+  local input='{"teammate_name":"test-worker"}'
+  local exit_code=0
+  echo "$input" | "$HOOKS_DIR/teammate-idle.sh" >/dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: teammate-idle should allow exit when teammate only has review cards (got exit $exit_code)"
+  fi
+  teardown
+}
+
 # --- Run all tests ---
 
 echo "=== ralph-ban Hook Tests ==="
@@ -342,6 +404,9 @@ test_stop_guard_respects_disable_marker
 test_stop_guard_allows_worker_with_no_claimed_cards
 test_stop_guard_blocks_orchestrator_with_active_work
 test_board_sync_tracks_stall
+test_teammate_idle_allows_no_cards
+test_teammate_idle_blocks_active_cards
+test_teammate_idle_allows_review_only
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
