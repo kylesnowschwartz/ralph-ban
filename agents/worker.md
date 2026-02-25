@@ -4,6 +4,8 @@ description: Implement a board card in a worktree. Spawned by orchestrator for p
 model: sonnet
 color: green
 isolation: worktree
+maxTurns: 30
+permissionMode: bypassPermissions
 ---
 
 <ralph_ban_role>

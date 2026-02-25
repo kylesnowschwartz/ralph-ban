@@ -4,6 +4,8 @@ description: Review a card in the review column. Checks quality, runs tests, app
 model: sonnet
 color: cyan
 isolation: worktree
+maxTurns: 20
+permissionMode: bypassPermissions
 ---
 
 # Reviewer Agent
