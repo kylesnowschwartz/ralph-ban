@@ -8,8 +8,10 @@ framework_preamble() {
   cat <<'PREAMBLE'
 Ralph-Ban Orchestration
 - SessionStart: board snapshot, suggested next task
-- UserPromptSubmit: board diffs, dispatch/review nudges, circuit breaker
-- Stop: blocks exit until work is clean (uncommitted changes, review queue 3+, active cards)
+- UserPromptSubmit: board diffs, dispatch/review nudges, stall detection
+- Stop: blocks exit on uncommitted changes, claimed cards, active work
+- TeammateIdle: prevents idle when you own active cards (doing/todo)
+- TaskCompleted: validates your cards are in review before task completion
 - PreCompact: re-injects board state before context compression
 Hook messages guide your workflow. They are not commands to react to immediately — stay focused on your current task and address blockers as part of your natural flow.
 PREAMBLE
