@@ -249,49 +249,16 @@ extract_id() {
   echo "$1" | grep -o 'bl-[a-z0-9]*' | head -1
 }
 
-# --- stop-guard.sh promise tokens ---
-
-test_stop_guard_allows_with_promise_token() {
-  setup
-  bl create "Active Todo" >/dev/null
-  local input='{"last_assistant_message":"All done. <promise>PIPELINE_CLEAR</promise>","stop_hook_active":false}'
-
-  local out
-  out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
-  assert_not_contains "$out" '"block"' "stop-guard allows exit with PIPELINE_CLEAR token"
-  teardown
-}
-
-test_stop_guard_allows_card_done_token() {
-  setup
-  bl create "Active Todo" >/dev/null
-  local input='{"last_assistant_message":"Card moved to review. <promise>CARD_DONE</promise>","stop_hook_active":false}'
-
-  local out
-  out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
-  assert_not_contains "$out" '"block"' "stop-guard allows exit with CARD_DONE token"
-  teardown
-}
+# --- stop-guard.sh safety rails ---
 
 test_stop_guard_allows_on_stop_hook_active() {
   setup
   bl create "Active Todo" >/dev/null
-  local input='{"last_assistant_message":"trying to stop","stop_hook_active":true}'
+  local input='{"stop_hook_active":true}'
 
   local out
   out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
   assert_not_contains "$out" '"block"' "stop-guard softens blocking when stop_hook_active"
-  teardown
-}
-
-test_stop_guard_blocks_without_token() {
-  setup
-  bl create "Active Todo" >/dev/null
-  local input='{"last_assistant_message":"just chatting","stop_hook_active":false}'
-
-  local out
-  out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
-  assert_contains "$out" '"block"' "stop-guard blocks without token and active work"
   teardown
 }
 
@@ -303,6 +270,27 @@ test_stop_guard_respects_disable_marker() {
   local out
   out=$("$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
   assert_not_contains "$out" '"block"' "stop-guard respects disable marker"
+  teardown
+}
+
+test_stop_guard_allows_worker_with_no_claimed_cards() {
+  setup
+  bl create "Active Todo" >/dev/null
+  # Worker agent with no claimed cards — should exit even though board has active work
+  CLAUDE_AGENT_NAME=worker "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true
+  local out
+  out=$(CLAUDE_AGENT_NAME=worker "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "stop-guard allows worker exit with no claimed cards"
+  teardown
+}
+
+test_stop_guard_blocks_orchestrator_with_active_work() {
+  setup
+  bl create "Active Todo" >/dev/null
+  # Orchestrator is blocked by board-wide active work
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "stop-guard blocks orchestrator when active work remains"
   teardown
 }
 
@@ -349,11 +337,10 @@ test_stop_guard_allows_only_done
 test_stop_guard_allows_only_backlog
 test_board_state_read_board
 test_board_state_count_active
-test_stop_guard_allows_with_promise_token
-test_stop_guard_allows_card_done_token
 test_stop_guard_allows_on_stop_hook_active
-test_stop_guard_blocks_without_token
 test_stop_guard_respects_disable_marker
+test_stop_guard_allows_worker_with_no_claimed_cards
+test_stop_guard_blocks_orchestrator_with_active_work
 test_board_sync_tracks_stall
 
 echo ""

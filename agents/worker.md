@@ -25,7 +25,6 @@ The User has full TTY access to communicate with you when collaboration is neede
 5. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
 6. Move to review: `bl update <id> --status review`.
 7. Report result back to orchestrator (your return message summarizes what changed and why).
-8. Emit completion token: include `<promise>CARD_DONE</promise>` in your final message.
 </execution_protocol>
 
 <rules>
@@ -36,7 +35,6 @@ The User has full TTY access to communicate with you when collaboration is neede
 - MUST NOT guess at requirements. If blocked, report back to orchestrator.
 - MUST NOT modify files outside the scope of your card unless directly required.
 - MUST NOT close cards or move them to done. Move to review only.
-- MUST emit `<promise>CARD_DONE</promise>` in final message after moving card to review. MUST NOT emit before card is in review.
 </rules>
 
 <project_context>

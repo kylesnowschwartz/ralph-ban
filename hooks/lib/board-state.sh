@@ -211,26 +211,6 @@ clear_bounce() {
   fi
 }
 
-# --- Promise token detection ---
-
-PROMISE_TOKENS="CARD_DONE REVIEW_APPROVED REVIEW_REJECTED PIPELINE_CLEAR"
-
-# has_token checks for <promise>\s*TOKEN\s*</promise> in text.
-has_token() {
-  local text="$1" token="$2"
-  echo "$text" | grep -qE "<promise>[[:space:]]*${token}[[:space:]]*</promise>"
-}
-
-# extract_tokens returns all recognized tokens found in text, one per line.
-extract_tokens() {
-  local text="$1"
-  for token in $PROMISE_TOKENS; do
-    if has_token "$text" "$token"; then
-      echo "$token"
-    fi
-  done
-}
-
 # --- Stall detection for in-progress cards ---
 
 STALL_THRESHOLD="${STALL_THRESHOLD:-5}"

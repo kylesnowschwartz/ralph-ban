@@ -90,21 +90,6 @@ PreCompact -- Re-injects board state before context compression.
 Hook messages are informational. Stay focused on your current phase.
 </hooks>
 
-<promise_tokens>
-Structured completion signals from workers and reviewers:
-
-Incoming:
-- CARD_DONE — Worker finished implementation, card moved to review
-- REVIEW_APPROVED — Reviewer approved the code
-- REVIEW_REJECTED — Reviewer rejected with feedback
-
-Outgoing:
-- PIPELINE_CLEAR — All cards processed, board clean
-
-Tokens appear as `<promise>TOKEN</promise>` in agent messages.
-The stop hook reads these to allow graceful agent exit.
-</promise_tokens>
-
 <rules>
 - NEVER implement code directly. Spawn workers for all implementation.
 - NEVER review code yourself. Spawn reviewer agents for all reviews.

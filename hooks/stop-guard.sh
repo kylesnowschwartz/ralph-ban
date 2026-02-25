@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Stop hook: prevents premature exit when todo/doing items remain.
-# Promise tokens allow structured agent exit. Disable marker provides escape hatch.
+# Stop hook: prevents premature exit when work remains.
+# Workers/reviewers are only blocked by their own cards and uncommitted changes.
+# The orchestrator is blocked by the full board state.
 # Output: {decision: "block", reason: "..."} on stdout to block (exit 0).
 # No output + exit 0 = allow stop. Never exit 2 — use JSON decision field.
 
@@ -23,17 +24,7 @@ input=""
 if [ ! -t 0 ]; then
   input=$(cat 2>/dev/null || true)
 fi
-last_message=$(echo "$input" | jq -r '.last_assistant_message // ""' 2>/dev/null || true)
 stop_hook_active=$(echo "$input" | jq -r '.stop_hook_active // false' 2>/dev/null || true)
-
-# --- Promise tokens: structured completion signal ---
-if [ -n "$last_message" ]; then
-  tokens=$(extract_tokens "$last_message")
-  if [ -n "$tokens" ]; then
-    # Agent signaled completion — allow exit
-    exit 0
-  fi
-fi
 
 # --- Anti-loop guard ---
 # When stop_hook_active is true, the agent is already trying to stop.
@@ -76,6 +67,25 @@ if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
   exit 0
 fi
 
+# --- Surface owned cards ---
+AGENT_NAME="${CLAUDE_AGENT_NAME:-claude}"
+claimed=$("$BL" list --assigned-to "$AGENT_NAME" --json 2>/dev/null | jq -r 'select(.status == "doing" or .status == "todo") | "\(.id): \(.title) (\(.status))"' 2>/dev/null || true)
+if [ -n "$claimed" ]; then
+  jq -n --arg claimed "$claimed" '{
+    decision: "block",
+    reason: "You still own active cards",
+    systemMessage: ("You have claimed cards that are not done:\n" + $claimed + "\nComplete them, move to review, or unclaim them. The orchestration framework blocks stopping while you own active work.")
+  }'
+  exit 0
+fi
+
+# --- Board-wide checks: orchestrator only ---
+# Workers/reviewers are done when they have no active claimed cards (checked above).
+# Only the orchestrator is responsible for the full board.
+if [ "$AGENT_NAME" != "claude" ] && [ "$AGENT_NAME" != "orchestrator" ]; then
+  exit 0
+fi
+
 # --- Block on deep review queue ---
 review_count=$(count_review || echo "0")
 if [ "$review_count" -ge 3 ] 2>/dev/null; then
@@ -88,18 +98,6 @@ if [ "$review_count" -ge 3 ] 2>/dev/null; then
     decision: "block",
     reason: ("Review queue has " + $count + " cards — review before adding more work"),
     systemMessage: ("Review queue has " + $count + " cards:\n" + $cards + "\nLaunch a review team: create reviewer agents in isolated worktrees, one per card. Approved cards get merged and closed. Rejected cards go back to doing with specific feedback. Process the queue before continuing other work.")
-  }'
-  exit 0
-fi
-
-# --- Surface owned cards ---
-AGENT_NAME="${CLAUDE_AGENT_NAME:-claude}"
-claimed=$("$BL" list --assigned-to "$AGENT_NAME" --json 2>/dev/null | jq -r 'select(.status == "doing" or .status == "todo") | "\(.id): \(.title) (\(.status))"' 2>/dev/null || true)
-if [ -n "$claimed" ]; then
-  jq -n --arg claimed "$claimed" '{
-    decision: "block",
-    reason: "You still own active cards",
-    systemMessage: ("You have claimed cards that are not done:\n" + $claimed + "\nComplete them, move to review, or unclaim them. The orchestration framework blocks stopping while you own active work.")
   }'
   exit 0
 fi
