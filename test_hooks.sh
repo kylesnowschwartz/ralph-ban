@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-HOOKS_DIR="$SCRIPT_DIR/.claude/hooks"
+HOOKS_DIR="$SCRIPT_DIR/hooks"
 
 # Use locally built bl — export so hook scripts see it via ${BL:-bl}
 BL="${BL:-/tmp/bl-test}"
