@@ -17,6 +17,7 @@ func runClaude(args []string) {
 	name := fs.String("name", "claude", "agent name (flows to hooks via CLAUDE_AGENT_NAME)")
 	model := fs.String("model", "", "override the agent's default model (opus, sonnet, haiku)")
 	autonomous := fs.Bool("autonomous", false, "skip permission prompts (dangerously-skip-permissions)")
+	teammateMode := fs.String("teammate-mode", "in-process", "teammate display mode (in-process, split-pane, auto)")
 	prompt := fs.String("prompt", "", "override the initial prompt sent to claude")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: ralph-ban claude [flags]\n\nStart a Claude Code session with board orchestrator role.\n\nFlags:\n")
@@ -36,7 +37,7 @@ func runClaude(args []string) {
 		os.Exit(1)
 	}
 
-	claudeArgs := buildClaudeArgs(pluginDir, *model, *autonomous, *prompt)
+	claudeArgs := buildClaudeArgs(pluginDir, *model, *autonomous, *teammateMode, *prompt)
 
 	// Set agent name so hooks can identify this session.
 	os.Setenv("CLAUDE_AGENT_NAME", *name)
@@ -55,7 +56,7 @@ func runClaude(args []string) {
 // buildClaudeArgs constructs the argument list for the claude binary.
 // The --agent flag delegates agent loading to Claude Code, which reads
 // agents/orchestrator.md and applies its frontmatter (model, isolation, etc.).
-func buildClaudeArgs(pluginDir, model string, autonomous bool, prompt string) []string {
+func buildClaudeArgs(pluginDir, model string, autonomous bool, teammateMode, prompt string) []string {
 	args := []string{
 		"--plugin-dir", pluginDir,
 		"--agent", "orchestrator",
@@ -68,6 +69,10 @@ func buildClaudeArgs(pluginDir, model string, autonomous bool, prompt string) []
 
 	if autonomous {
 		args = append(args, "--dangerously-skip-permissions")
+	}
+
+	if teammateMode != "" {
+		args = append(args, "--teammate-mode", teammateMode)
 	}
 
 	// Initial prompt as positional argument.
