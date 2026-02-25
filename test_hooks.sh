@@ -249,6 +249,88 @@ extract_id() {
   echo "$1" | grep -o 'bl-[a-z0-9]*' | head -1
 }
 
+# --- stop-guard.sh promise tokens ---
+
+test_stop_guard_allows_with_promise_token() {
+  setup
+  bl create "Active Todo" >/dev/null
+  local input='{"last_assistant_message":"All done. <promise>PIPELINE_CLEAR</promise>","stop_hook_active":false}'
+
+  local out
+  out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "stop-guard allows exit with PIPELINE_CLEAR token"
+  teardown
+}
+
+test_stop_guard_allows_card_done_token() {
+  setup
+  bl create "Active Todo" >/dev/null
+  local input='{"last_assistant_message":"Card moved to review. <promise>CARD_DONE</promise>","stop_hook_active":false}'
+
+  local out
+  out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "stop-guard allows exit with CARD_DONE token"
+  teardown
+}
+
+test_stop_guard_allows_on_stop_hook_active() {
+  setup
+  bl create "Active Todo" >/dev/null
+  local input='{"last_assistant_message":"trying to stop","stop_hook_active":true}'
+
+  local out
+  out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "stop-guard softens blocking when stop_hook_active"
+  teardown
+}
+
+test_stop_guard_blocks_without_token() {
+  setup
+  bl create "Active Todo" >/dev/null
+  local input='{"last_assistant_message":"just chatting","stop_hook_active":false}'
+
+  local out
+  out=$(echo "$input" | "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "stop-guard blocks without token and active work"
+  teardown
+}
+
+test_stop_guard_respects_disable_marker() {
+  setup
+  bl create "Active Todo" >/dev/null
+  touch .ralph-ban/disabled
+
+  local out
+  out=$("$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "stop-guard respects disable marker"
+  teardown
+}
+
+# --- board-sync.sh stall detection ---
+
+test_board_sync_tracks_stall() {
+  setup
+  local create_out id
+  create_out=$(bl create "Stalling Task")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+
+  # Set baseline
+  "$HOOKS_DIR/session-start.sh" >/dev/null 2>&1 || true
+
+  # Run board-sync repeatedly to accumulate stale cycles.
+  # Low threshold for testing.
+  export STALL_THRESHOLD=3
+  local out=""
+  for i in $(seq 1 4); do
+    out=$("$HOOKS_DIR/board-sync.sh" 2>/dev/null || true)
+  done
+
+  assert_contains "$out" "STALL" "board-sync detects stalled card after threshold"
+  unset STALL_THRESHOLD
+  teardown
+}
+
 # --- Run all tests ---
 
 echo "=== ralph-ban Hook Tests ==="
@@ -267,6 +349,12 @@ test_stop_guard_allows_only_done
 test_stop_guard_allows_only_backlog
 test_board_state_read_board
 test_board_state_count_active
+test_stop_guard_allows_with_promise_token
+test_stop_guard_allows_card_done_token
+test_stop_guard_allows_on_stop_hook_active
+test_stop_guard_blocks_without_token
+test_stop_guard_respects_disable_marker
+test_board_sync_tracks_stall
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

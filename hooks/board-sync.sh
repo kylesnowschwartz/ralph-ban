@@ -91,6 +91,11 @@ if [ -n "$changes" ]; then
   done <<<"$changes"
 fi
 
+# --- Stall detection: track doing card progress ---
+record_card_progress
+stall_warnings=""
+stall_warnings=$(detect_stalled_cards)
+
 # Build the system message from available parts
 parts=()
 if [ -n "$breaker_warning" ]; then
@@ -105,6 +110,10 @@ if [ -n "$dispatch_nudge" ]; then
 fi
 if [ -n "$review_nudge" ]; then
   parts+=("$review_nudge")
+fi
+if [ -n "$stall_warnings" ]; then
+  parts+=("STALL DETECTED:")
+  parts+=("$stall_warnings")
 fi
 
 if [ ${#parts[@]} -gt 0 ]; then

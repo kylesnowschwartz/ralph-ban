@@ -210,3 +210,96 @@ clear_bounce() {
     mv "${BOUNCE_FILE}.tmp" "$BOUNCE_FILE"
   fi
 }
+
+# --- Promise token detection ---
+
+PROMISE_TOKENS="CARD_DONE REVIEW_APPROVED REVIEW_REJECTED PIPELINE_CLEAR"
+
+# has_token checks for <promise>\s*TOKEN\s*</promise> in text.
+has_token() {
+  local text="$1" token="$2"
+  echo "$text" | grep -qE "<promise>[[:space:]]*${token}[[:space:]]*</promise>"
+}
+
+# extract_tokens returns all recognized tokens found in text, one per line.
+extract_tokens() {
+  local text="$1"
+  for token in $PROMISE_TOKENS; do
+    if has_token "$text" "$token"; then
+      echo "$token"
+    fi
+  done
+}
+
+# --- Stall detection for in-progress cards ---
+
+STALL_THRESHOLD="${STALL_THRESHOLD:-5}"
+PROGRESS_FILE="${_GIT_ROOT}/.ralph-ban/.worker-progress.json"
+
+# record_card_progress updates stale cycle counts for doing cards.
+# Call once per board-sync. Cards that leave doing are dropped.
+record_card_progress() {
+  local state
+  state=$(read_board)
+  if [ -z "$state" ]; then
+    return
+  fi
+
+  # Get current doing cards as JSON array
+  local doing_cards
+  doing_cards=$(echo "$state" | jq -s '[.[] | select(.status == "doing") | {id, status, assigned_to}]' 2>/dev/null || echo "[]")
+
+  # Load existing progress or start fresh
+  local progress
+  if [ -f "$PROGRESS_FILE" ]; then
+    progress=$(cat "$PROGRESS_FILE")
+  else
+    progress="{}"
+  fi
+
+  # Increment stale_cycles for unchanged cards, reset for changed/new.
+  # Cards that left doing are dropped (only current doing cards appear).
+  local updated
+  updated=$(jq -n \
+    --argjson doing "$doing_cards" \
+    --argjson prev "$progress" \
+    '
+    reduce ($doing[]) as $card ({};
+      . + {
+        ($card.id): (
+          if $prev[$card.id] then
+            if $prev[$card.id].status == $card.status then
+              $prev[$card.id] | .stale_cycles += 1
+            else
+              {status: $card.status, agent: ($card.assigned_to // "unknown"), stale_cycles: 0}
+            end
+          else
+            {status: $card.status, agent: ($card.assigned_to // "unknown"), stale_cycles: 0}
+          end
+        )
+      }
+    )
+    ' 2>/dev/null || echo "{}")
+
+  mkdir -p "$(dirname "$PROGRESS_FILE")"
+  echo "$updated" > "$PROGRESS_FILE"
+}
+
+# detect_stalled_cards outputs warnings for cards exceeding the stall threshold.
+detect_stalled_cards() {
+  if [ ! -f "$PROGRESS_FILE" ]; then
+    return
+  fi
+
+  local threshold="${STALL_THRESHOLD}"
+  jq -r --argjson thresh "$threshold" '
+    to_entries[]
+    | select(.value.stale_cycles >= $thresh)
+    | "Card \(.key) (agent: \(.value.agent)) has been stalled for \(.value.stale_cycles) cycles without progress"
+  ' "$PROGRESS_FILE" 2>/dev/null || true
+}
+
+# clear_progress_tracking removes the progress file.
+clear_progress_tracking() {
+  rm -f "$PROGRESS_FILE"
+}
