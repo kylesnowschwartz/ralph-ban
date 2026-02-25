@@ -41,6 +41,10 @@ func runClaude(args []string) {
 	// Set agent name so hooks can identify this session.
 	os.Setenv("CLAUDE_AGENT_NAME", *name)
 
+	// Set BL_ROOT so workers in worktrees resolve the database from the project root.
+	cwd, _ := os.Getwd()
+	os.Setenv("BL_ROOT", cwd)
+
 	// Replace this process with claude for clean signal handling.
 	if err := syscall.Exec(claudeBin, append([]string{"claude"}, claudeArgs...), os.Environ()); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to exec claude: %v\n", err)

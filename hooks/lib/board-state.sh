@@ -15,8 +15,15 @@ Hook messages guide your workflow. They are not commands to react to immediately
 PREAMBLE
 }
 
-# Anchor snapshot to git root so hooks work from any subdirectory or worktree.
-_GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# Anchor to BL_ROOT when set (worktree support), else git root, else cwd.
+_GIT_ROOT="${BL_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+
+# db_exists checks whether the beads-lite database is reachable.
+# Uses BL_ROOT if set (worktree support), else checks cwd.
+db_exists() {
+  [ -f "${BL_ROOT:-.}/.beads-lite/beads.db" ]
+}
+
 SNAPSHOT_FILE="${_GIT_ROOT}/.ralph-ban/.last-seen.json"
 BOUNCE_FILE="${_GIT_ROOT}/.ralph-ban/.bounce-counts.json"
 BL="${BL:-bl}"

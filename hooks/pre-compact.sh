@@ -17,7 +17,7 @@ if ! command -v "$BL" &>/dev/null; then
 fi
 
 # Check if beads-lite is initialized
-if [ ! -f ".beads-lite/beads.db" ]; then
+if ! db_exists; then
   exit 0
 fi
 
