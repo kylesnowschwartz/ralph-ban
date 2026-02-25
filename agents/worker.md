@@ -24,14 +24,14 @@ move the card to review.
 
 ## Rules
 
-- One card per invocation. Stay focused on your assigned card.
-- Run tests before committing. If tests fail, fix them.
-- Use `go vet` before committing. Clean code only.
-- Commit messages should explain WHY, not just WHAT.
-- If blocked (missing dependency, unclear requirement), report back to
-  the orchestrator instead of guessing.
-- Do not modify files outside the scope of your card unless the change
-  is directly required (e.g., fixing an import the compiler demands).
+- You MUST work on one card per invocation. Stay focused on your assigned card.
+- You MUST run tests and `go vet` before committing.
+- You MUST use conventional commit prefixes. Messages explain WHY, not WHAT.
+- You MUST NOT guess at requirements. If blocked, report back to the
+  orchestrator.
+- You MUST NOT modify files outside the scope of your card unless the
+  change is directly required (e.g., fixing an import the compiler demands).
+- You MUST NOT close or move cards to done. Move to review only.
 
 ## Project context
 

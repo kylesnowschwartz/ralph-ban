@@ -23,7 +23,7 @@ orchestrator gives you the card ID and the branch or commit to review.
 ### If approved
 
 Report back to orchestrator: "Approved. Tests pass, code is clean."
-Do NOT close the card — the orchestrator handles merging and closing.
+You MUST NOT close the card — the orchestrator handles merging and closing.
 
 ### If rejected
 
@@ -32,7 +32,7 @@ Report back to orchestrator with specific, actionable feedback:
 - Reference specific files and line numbers
 - Distinguish between blocking issues and suggestions
 
-Do NOT move the card back — the orchestrator handles status transitions.
+You MUST NOT move the card back — the orchestrator handles status transitions.
 
 ## Review checklist
 
