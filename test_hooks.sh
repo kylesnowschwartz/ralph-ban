@@ -31,6 +31,7 @@ setup() {
 
 teardown() {
   cd /
+  rm -f "${TMPDIR:-/tmp}/ralph-ban-board.$$.cache"
   rm -rf "$TEST_DIR"
 }
 
@@ -63,7 +64,7 @@ test_session_start_empty_board() {
   setup
   local out
   out=$("$HOOKS_DIR/session-start.sh" 2>/dev/null || true)
-  assert_contains "$out" "systemMessage" "session-start outputs systemMessage"
+  assert_contains "$out" "additionalContext" "session-start outputs additionalContext"
   assert_contains "$out" "empty" "session-start reports empty board"
   teardown
 }
@@ -75,7 +76,7 @@ test_session_start_with_tasks() {
 
   local out
   out=$("$HOOKS_DIR/session-start.sh" 2>/dev/null || true)
-  assert_contains "$out" "systemMessage" "session-start outputs systemMessage with tasks"
+  assert_contains "$out" "additionalContext" "session-start outputs additionalContext with tasks"
   assert_contains "$out" "Priority Task" "session-start suggests highest priority task"
   assert_contains "$out" "ready" "session-start mentions ready items"
   teardown
@@ -131,7 +132,7 @@ test_board_sync_detects_status_change() {
   # Run sync
   local out
   out=$("$HOOKS_DIR/board-sync.sh" 2>/dev/null || true)
-  assert_contains "$out" "systemMessage" "board-sync outputs systemMessage on change"
+  assert_contains "$out" "additionalContext" "board-sync outputs additionalContext on change"
   teardown
 }
 
@@ -147,7 +148,7 @@ test_board_sync_detects_new_card() {
   # Run sync
   local out
   out=$("$HOOKS_DIR/board-sync.sh" 2>/dev/null || true)
-  assert_contains "$out" "systemMessage" "board-sync detects new card"
+  assert_contains "$out" "additionalContext" "board-sync detects new card"
   teardown
 }
 
