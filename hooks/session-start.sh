@@ -22,9 +22,12 @@ fi
 # Save initial snapshot for future diffs
 save_snapshot
 
-# Helper: output additionalContext JSON and exit.
+# Helper: output additionalContext (agent context) + systemMessage (user-visible) and exit.
 emit_context() {
-  jq -n --arg ctx "$1" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
+  local agent_ctx="$1"
+  local user_msg="${2:-$1}"
+  jq -n --arg ctx "$agent_ctx" --arg msg "$user_msg" \
+    '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}, systemMessage: $msg}'
 }
 
 # Get ready work and suggest highest-priority item
@@ -47,5 +50,7 @@ status=$(echo "$first" | jq -r '.status // "unknown"')
 total=$(echo "$ready" | wc -l | tr -d ' ')
 
 preamble=$(framework_preamble)
+board_summary="Board has ${total} ready items. Highest priority: '${title}' (${id}, ${status})."
 emit_context "${preamble}
-Board has ${total} ready items. Highest priority: '${title}' (${id}, ${status}). Run \`bl claim ${id} --agent claude\` to start working on it."
+${board_summary} Run \`bl claim ${id} --agent claude\` to start working on it." \
+  "$board_summary"
