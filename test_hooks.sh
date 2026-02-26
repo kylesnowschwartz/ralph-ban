@@ -444,6 +444,79 @@ test_task_completed_blocks_doing_cards() {
   teardown
 }
 
+# --- stop-guard.sh stall detection ---
+
+test_stop_guard_stall_detection_allows_after_max_stalls() {
+  setup
+  bl create "Stuck Task" >/dev/null
+  # Pre-populate the hash file so the hook thinks the board hasn't changed,
+  # and set the cycle count to MAX_STALLS-1 so the next run triggers the limit.
+  source "$HOOKS_DIR/lib/board-state.sh"
+  local hash
+  hash=$(read_board_hash)
+  mkdir -p .ralph-ban
+  echo "$hash" > .ralph-ban/.stop-board-hash
+  echo "4" > .ralph-ban/.stop-cycles  # one below MAX_STALLS=5
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  # At max stalls the hook emits a systemMessage but no "block" decision, allowing exit
+  assert_not_contains "$out" '"block"' "stop-guard allows exit after max stall cycles"
+  assert_contains "$out" "stop cycles" "stop-guard reports stall cycle count"
+  teardown
+}
+
+test_stop_guard_stall_resets_on_progress() {
+  setup
+  local create_out id
+  create_out=$(bl create "Progressing Task")
+  id=$(extract_id "$create_out")
+  # Start with a stale hash (different from current board state)
+  mkdir -p .ralph-ban
+  echo "deadbeef_old_hash" > .ralph-ban/.stop-board-hash
+  echo "3" > .ralph-ban/.stop-cycles
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  # Board changed (hash differs), so stall resets and hook still blocks on active work
+  assert_contains "$out" '"block"' "stop-guard still blocks when progress detected and work remains"
+  local cycles
+  cycles=$(cat .ralph-ban/.stop-cycles 2>/dev/null || echo "")
+  if [ "$cycles" = "0" ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: stall counter should reset to 0 on progress (got: $cycles)"
+  fi
+  teardown
+}
+
+test_stop_guard_specific_guidance_next_todo() {
+  setup
+  bl create "Important Feature" >/dev/null
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" "Important Feature" "stop-guard names the next todo card in guidance"
+  assert_contains "$out" '"block"' "stop-guard still blocks with specific guidance"
+  teardown
+}
+
+test_stop_guard_specific_guidance_unclaimed_doing() {
+  setup
+  local create_out id
+  create_out=$(bl create "Orphaned Task")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  # Leave it unclaimed (no assigned_to)
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" "no assignee" "stop-guard highlights unclaimed doing card"
+  assert_contains "$out" '"block"' "stop-guard blocks with unclaimed doing guidance"
+  teardown
+}
+
 # --- Run all tests ---
 
 echo "=== ralph-ban Hook Tests ==="
@@ -473,6 +546,10 @@ test_teammate_idle_blocks_active_cards
 test_teammate_idle_allows_review_only
 test_task_completed_allows_no_doing
 test_task_completed_blocks_doing_cards
+test_stop_guard_stall_detection_allows_after_max_stalls
+test_stop_guard_stall_resets_on_progress
+test_stop_guard_specific_guidance_next_todo
+test_stop_guard_specific_guidance_unclaimed_doing
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

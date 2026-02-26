@@ -102,15 +102,68 @@ if [ "$review_count" -ge 3 ] 2>/dev/null; then
   exit 0
 fi
 
-# --- Count remaining active items ---
+# --- Orchestrator persistence: stall detection with cycle limit ---
+MAX_STALLS=5
+CYCLE_FILE="${_STOP_ROOT}/.ralph-ban/.stop-cycles"
+HASH_FILE="${_STOP_ROOT}/.ralph-ban/.stop-board-hash"
+
+current_hash=$(read_board_hash)
+last_hash=$(cat "$HASH_FILE" 2>/dev/null || echo "")
+
+if [ "$current_hash" = "$last_hash" ]; then
+  # No board progress since last stop attempt — increment stall counter
+  stall_count=$(cat "$CYCLE_FILE" 2>/dev/null || echo "0")
+  stall_count=$((stall_count + 1))
+  echo "$stall_count" > "$CYCLE_FILE"
+
+  if [ "$stall_count" -ge "$MAX_STALLS" ]; then
+    # Hard limit reached — allow exit rather than trapping the orchestrator forever
+    echo "0" > "$CYCLE_FILE"
+    rm -f "$HASH_FILE"
+    jq -n --arg stalls "$MAX_STALLS" '{
+      systemMessage: ("Reached " + $stalls + " stop cycles with no board progress. Ask the user if they want to continue or stop.")
+    }'
+    exit 0
+  fi
+else
+  # Board changed — progress was made, reset stall counter
+  echo "0" > "$CYCLE_FILE"
+fi
+mkdir -p "${_STOP_ROOT}/.ralph-ban"
+echo "$current_hash" > "$HASH_FILE"
+
+# --- Specific next-action guidance ---
 read todo_count doing_count <<<"$(count_active)"
 
 if [ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ]; then
-  jq -n --arg todo "$todo_count" --arg doing "$doing_count" '{
-    decision: "block",
-    reason: "Board has active work remaining",
-    systemMessage: ("Board has " + $todo + " todo and " + $doing + " doing items. Pick up the next task, or ask the user if they want you to stop despite remaining work.")
-  }'
+  # Try to identify the concrete next action from bl ready output
+  next_action=""
+
+  # Check for unclaimed doing cards
+  unclaimed_doing=$("$BL" list --json 2>/dev/null | jq -r 'select(.status == "doing" and (.assigned_to == null or .assigned_to == "")) | "\(.id): \(.title)"' 2>/dev/null | head -1 || true)
+  if [ -n "$unclaimed_doing" ]; then
+    next_action="$unclaimed_doing is in doing with no assignee. Claim it or spawn a worker."
+  else
+    # Try bl ready --json for the highest-priority todo card
+    next_card=$("$BL" ready --json 2>/dev/null | jq -r 'select(.status == "todo") | "\(.id) — \(.title)"' 2>/dev/null | head -1 || true)
+    if [ -n "$next_card" ]; then
+      next_action="Next card to dispatch: $next_card"
+    fi
+  fi
+
+  if [ -n "$next_action" ]; then
+    jq -n --arg action "$next_action" '{
+      decision: "block",
+      reason: "Board has active work remaining",
+      systemMessage: ("Board has active work. " + $action)
+    }'
+  else
+    jq -n --arg todo "$todo_count" --arg doing "$doing_count" '{
+      decision: "block",
+      reason: "Board has active work remaining",
+      systemMessage: ("Board has " + $todo + " todo and " + $doing + " doing items. Pick up the next task, or ask the user if they want you to stop despite remaining work.")
+    }'
+  fi
 else
   exit 0
 fi
