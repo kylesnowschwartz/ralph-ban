@@ -3,25 +3,28 @@ package main
 import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	Left       key.Binding
-	Right      key.Binding
-	New        key.Binding
-	Edit       key.Binding
-	Delete     key.Binding
-	MoveRight  key.Binding
-	MoveLeft   key.Binding
-	Undo       key.Binding
-	Detail     key.Binding
-	PriorityUp key.Binding
-	PriorityDn key.Binding
-	Search     key.Binding
-	Help       key.Binding
-	Quit       key.Binding
-	Suspend    key.Binding
-	Back       key.Binding
-	CtrlClick  key.Binding // display-only: mouse events bypass key bindings
+	Up           key.Binding
+	Down         key.Binding
+	Left         key.Binding
+	Right        key.Binding
+	New          key.Binding
+	Edit         key.Binding
+	Delete       key.Binding
+	MoveRight    key.Binding
+	MoveLeft     key.Binding
+	Undo         key.Binding
+	Detail       key.Binding
+	PriorityUp   key.Binding
+	PriorityDn   key.Binding
+	Search       key.Binding
+	FilterNext   key.Binding
+	FilterPrev   key.Binding
+	FilterClear  key.Binding
+	Help         key.Binding
+	Quit         key.Binding
+	Suspend      key.Binding
+	Back         key.Binding
+	CtrlClick    key.Binding // display-only: mouse events bypass key bindings
 }
 
 var keys = keyMap{
@@ -81,6 +84,18 @@ var keys = keyMap{
 		key.WithKeys("/"),
 		key.WithHelp("/", "search"),
 	),
+	FilterNext: key.NewBinding(
+		key.WithKeys("f"),
+		key.WithHelp("f", "filter →"),
+	),
+	FilterPrev: key.NewBinding(
+		key.WithKeys("F"),
+		key.WithHelp("F", "filter ←"),
+	),
+	FilterClear: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "clear filter / back"),
+	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),
 		key.WithHelp("?", "more"),
@@ -103,13 +118,13 @@ var keys = keyMap{
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.New, k.Edit, k.MoveRight, k.MoveLeft, k.Search, k.Help}
+	return []key.Binding{k.New, k.Edit, k.MoveRight, k.MoveLeft, k.Search, k.FilterNext, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.New, k.Edit, k.Delete, k.MoveRight, k.MoveLeft, k.Undo, k.Detail, k.PriorityUp, k.PriorityDn},
-		{k.Search, k.Help, k.Quit, k.Suspend, k.Back, k.CtrlClick},
+		{k.Search, k.FilterNext, k.FilterPrev, k.Help, k.Quit, k.Suspend, k.Back, k.CtrlClick},
 	}
 }

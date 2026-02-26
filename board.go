@@ -50,6 +50,12 @@ type board struct {
 	searchInput textinput.Model
 	allItems    [numColumns][]list.Item
 
+	// Filter state: activeFilter narrows visible cards by priority, type, or assignee.
+	// allIssues caches every issue so filter steps can be built from the full set
+	// (not just what's currently visible after a previous filter was applied).
+	filter    activeFilter
+	allIssues []*beadslite.Issue
+
 	// Layout panning
 	termWidth  int
 	termHeight int
@@ -238,6 +244,20 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.openSearch()
 			return b, textinputBlink()
 
+		case key.Matches(msg, keys.FilterNext):
+			b.cycleFilter(+1)
+			return b, nil
+
+		case key.Matches(msg, keys.FilterPrev):
+			b.cycleFilter(-1)
+			return b, nil
+
+		case key.Matches(msg, keys.Back):
+			if b.filter.field != filterNone {
+				b.clearFilter()
+				return b, nil
+			}
+
 		}
 	}
 
@@ -290,6 +310,13 @@ func (b *board) View() string {
 		footerView = b.searchBarView()
 	} else {
 		footerView = b.help.View(keys)
+		if b.filter.field != filterNone {
+			filterIndicator := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("214")).
+				Bold(true).
+				Render("filter: " + b.filter.label())
+			footerView = filterIndicator + "  " + footerView
+		}
 	}
 
 	full := lipgloss.JoinVertical(lipgloss.Left,
@@ -313,18 +340,27 @@ func (b *board) loadFromStore() tea.Cmd {
 // applyRefresh partitions issues by status and updates column lists.
 // When search is active, the full item set is stashed in allItems and only
 // matching items are shown so the live filter stays consistent across polls.
+// When a filter is active, each column's items are narrowed to only matching cards.
 func (b *board) applyRefresh(msg refreshMsg) {
+	// Cache the full issue list so filter steps can be rebuilt from all issues,
+	// not just the subset currently visible.
+	b.allIssues = msg.issues
+
 	buckets := partitionByStatus(msg.issues, msg.blockedIDs)
 	for i := columnIndex(0); i < numColumns; i++ {
 		items := buckets[i]
 		if items == nil {
 			items = []list.Item{}
 		}
+
+		// Apply column filter before storing or displaying.
+		filtered := applyFilterToItems(items, b.filter)
+
 		if b.view == viewSearch {
-			b.allItems[i] = items
-			b.cols[i].SetItems(filterItems(items, b.searchInput.Value()))
+			b.allItems[i] = filtered
+			b.cols[i].SetItems(filterItems(filtered, b.searchInput.Value()))
 		} else {
-			b.cols[i].SetItems(items)
+			b.cols[i].SetItems(filtered)
 		}
 	}
 }
@@ -969,4 +1005,34 @@ func (b *board) searchBarView() string {
 // textinputBlink returns a command to start the text input cursor blinking.
 func textinputBlink() tea.Cmd {
 	return textinput.Blink
+}
+
+// cycleFilter advances (direction=+1) or retreats (direction=-1) through the filter cycle,
+// then re-renders all columns with the new filter applied immediately.
+func (b *board) cycleFilter(direction int) {
+	if direction >= 0 {
+		b.filter = nextFilter(b.filter, b.allIssues)
+	} else {
+		b.filter = prevFilter(b.filter, b.allIssues)
+	}
+	b.applyActiveFilter()
+}
+
+// clearFilter resets the filter to none and restores all column items.
+func (b *board) clearFilter() {
+	b.filter = activeFilter{field: filterNone}
+	b.applyActiveFilter()
+}
+
+// applyActiveFilter re-applies the current filter to every column using the
+// cached allIssues list so the visible set is always consistent with the filter state.
+func (b *board) applyActiveFilter() {
+	buckets := partitionByStatus(b.allIssues, nil)
+	for i := columnIndex(0); i < numColumns; i++ {
+		items := buckets[i]
+		if items == nil {
+			items = []list.Item{}
+		}
+		b.cols[i].SetItems(applyFilterToItems(items, b.filter))
+	}
 }
