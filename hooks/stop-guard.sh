@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Stop hook: prevents premature exit when work remains.
-# Workers/reviewers are only blocked by their own cards and uncommitted changes.
-# The orchestrator is blocked by the full board state.
+# Blocks on uncommitted changes and active board work (doing/todo cards).
 # Output: {decision: "block", reason: "..."} on stdout to block (exit 0).
 # No output + exit 0 = allow stop. Never exit 2 — use JSON decision field.
 
@@ -22,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
 
 # --- Debounce: suppress repeated identical board-state block messages ---
-# Early-exit blocks (uncommitted changes, anti-loop, team bypass) bypass this —
+# Early-exit blocks (uncommitted changes, anti-loop) bypass this —
 # they are always relevant. Only board-state blocks at the bottom are debounced.
 #
 # Takes JSON on stdin. If systemMessage content matches the last emission AND
@@ -77,7 +76,7 @@ if [ "$stop_hook_active" = "true" ]; then
   exit 0
 fi
 
-# --- Block on uncommitted changes (all agents, including teammates) ---
+# --- Block on uncommitted changes ---
 if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
   jq -n '{
     decision: "block",
@@ -87,49 +86,9 @@ if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
   exit 0
 fi
 
-# --- Team bypass: teammates exit freely after uncommitted check ---
-if [ -n "${CLAUDE_TEAM_NAME:-}" ]; then
-  exit 0
-fi
-
 require_bl
 
-# --- Surface owned cards ---
-AGENT_NAME="${CLAUDE_AGENT_NAME:-claude}"
-claimed=$("$BL" list --assigned-to "$AGENT_NAME" --json 2>/dev/null | jq -r 'select(.status == "doing" or .status == "todo") | "\(.id): \(.title) (\(.status))"' 2>/dev/null || true)
-if [ -n "$claimed" ]; then
-  jq -n --arg claimed "$claimed" '{
-    decision: "block",
-    reason: "You still own active cards",
-    systemMessage: ("You have claimed cards that are not done:\n" + $claimed + "\nComplete them, move to review, or unclaim them. The orchestration framework blocks stopping while you own active work.")
-  }'
-  exit 0
-fi
-
-# --- Board-wide checks: orchestrator only ---
-# Workers/reviewers are done when they have no active claimed cards (checked above).
-# Only the orchestrator is responsible for the full board.
-if [ "$AGENT_NAME" != "claude" ] && [ "$AGENT_NAME" != "orchestrator" ]; then
-  exit 0
-fi
-
-# --- Block on deep review queue ---
-review_count=$(count_review || echo "0")
-if [ "$review_count" -ge "$REVIEW_QUEUE_THRESHOLD" ] 2>/dev/null; then
-  state=$(read_board)
-  review_cards=$(echo "$state" | jq -r '
-    select(.status == "review")
-    | "\(.id): \(.title)"
-  ' 2>/dev/null || true)
-  jq -n --arg count "$review_count" --arg cards "$review_cards" '{
-    decision: "block",
-    reason: ("Review queue has " + $count + " cards — review before adding more work"),
-    systemMessage: ("Review queue has " + $count + " cards:\n" + $cards + "\nLaunch a review team: create reviewer agents in isolated worktrees, one per card. Approved cards get merged and closed. Rejected cards go back to doing with specific feedback. Process the queue before continuing other work.")
-  }'
-  exit 0
-fi
-
-# --- Orchestrator persistence: stall detection with cycle limit ---
+# --- Stall detection with cycle limit ---
 MAX_STALLS=5
 CYCLE_FILE="${_STOP_ROOT}/.ralph-ban/.stop-cycles"
 HASH_FILE="${_STOP_ROOT}/.ralph-ban/.stop-board-hash"
