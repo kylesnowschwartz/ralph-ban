@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -51,12 +52,21 @@ type board struct {
 	termWidth  int
 	termHeight int
 	panOffset  int // index of first visible column
+
+	// wip holds per-column WIP limits loaded from .ralph-ban/config.json.
+	// Zero limit for a column means unlimited.
+	wip wipConfig
 }
 
 func newBoard(store *beadslite.Store) *board {
+	// Load WIP config before constructing columns so limits are available
+	// during the first render. Missing or malformed config is silently ignored.
+	wip := loadConfig(".ralph-ban")
+
 	var cols [numColumns]column
 	for i := columnIndex(0); i < numColumns; i++ {
 		cols[i] = newColumn(i)
+		cols[i].wipLimit = wip.wipLimit(i)
 	}
 
 	h := help.New()
@@ -74,6 +84,7 @@ func newBoard(store *beadslite.Store) *board {
 		cols:        cols,
 		help:        h,
 		searchInput: si,
+		wip:         wip,
 	}
 	b.cols[b.focused].Focus()
 	return b
@@ -309,11 +320,28 @@ func (b *board) applyRefresh(issues []*beadslite.Issue) {
 
 // handleMove inserts a card into the target column, shifts focus to follow it,
 // and persists the status change. Saves state for single-level undo.
+// If the target column has a WIP limit that would be exceeded, the move is
+// blocked and an error is shown in the status bar instead.
 func (b *board) handleMove(msg moveMsg) tea.Cmd {
 	result := computeMove(msg.card, msg.source, msg.target)
 	if result == nil {
 		return nil
 	}
+
+	// Enforce WIP limit before mutating any state.
+	if limit := b.wip.wipLimit(result.target); limit > 0 {
+		current := len(b.cols[result.target].list.Items())
+		if current >= limit {
+			b.err = fmt.Errorf(
+				"WIP limit reached: %s is at capacity (%d/%d)",
+				columnTitles[result.target], current, limit,
+			)
+			return nil
+		}
+	}
+
+	// Clear any prior WIP error now that the move is proceeding.
+	b.err = nil
 
 	// Save for undo before mutating the card's status.
 	b.lastMove = &moveMsg{

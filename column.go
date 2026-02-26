@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -56,6 +58,9 @@ type column struct {
 	confirmDelete bool
 	height        int
 	width         int
+	// wipLimit is the maximum number of cards allowed in this column.
+	// 0 means unlimited (no config entry for this column).
+	wipLimit int
 }
 
 func newColumn(idx columnIndex) column {
@@ -147,15 +152,28 @@ func (c *column) Update(msg tea.Msg) tea.Cmd {
 }
 
 // View renders the column with a border that reflects focus state.
+// The header shows "Title (count)" or "Title (count/limit)" when a WIP limit is set.
 func (c *column) View() string {
+	count := len(c.list.Items())
+	var header string
+	if c.wipLimit > 0 {
+		header = fmt.Sprintf("%s (%d/%d)", columnTitles[c.index], count, c.wipLimit)
+	} else {
+		header = fmt.Sprintf("%s (%d)", columnTitles[c.index], count)
+	}
+
 	if c.confirmDelete {
-		saved := c.list.Title
 		c.list.Title = "Delete? d/esc"
 		view := c.getStyle().Render(c.list.View())
-		c.list.Title = saved
+		c.list.Title = header
 		return view
 	}
-	return c.getStyle().Render(c.list.View())
+
+	saved := c.list.Title
+	c.list.Title = header
+	view := c.getStyle().Render(c.list.View())
+	c.list.Title = saved
+	return view
 }
 
 // moveRight validates and emits a moveMsg to the next column.
