@@ -82,6 +82,18 @@ go build ./...    # build
 go run .          # run TUI (requires bl init first)
 ```
 
+### Worktree builds
+
+Agents running in isolated worktrees don't have access to go.work. Prefix all Go commands with `GOWORK=off`:
+
+```
+GOWORK=off go build ./...
+GOWORK=off go test ./... -count=1
+GOWORK=off go vet ./...
+```
+
+This uses go.mod's published dependency versions instead of the local workspace.
+
 SQLite via ncruces/go-sqlite3 (wazero WebAssembly runtime) — no CGo toolchain dependency.
 
 ### Dependencies
