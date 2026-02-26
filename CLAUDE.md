@@ -8,7 +8,7 @@ Four invariants that shape every decision in this codebase:
 
 - **The TUI is a view, not the source of truth.** The CLI (`bl`), agent hooks, and other TUI sessions all read and write the same SQLite database. ralph-ban renders and edits but never assumes exclusive access.
 - **Hooks fail open.** If a hook crashes, the agent continues. A broken hook should never permanently trap an agent. The one exception: the stop-guard blocks on uncommitted changes regardless.
-- **Human approval before merge.** Automation handles claim, implement, test, and review. The merge decision stays human.
+- **Human approval before merge (batch mode).** In batch mode, automation handles claim, implement, test, and review — the merge decision stays human. In autonomous mode, reviewed cards merge without asking.
 - **Priority P0-P4, ascending.** Lower number = higher urgency. P0 sorts to the top of each column.
 
 ## Architecture
@@ -34,7 +34,8 @@ Three agent types coordinate work. The split enforces separation of concerns by 
 ### Workflow phases
 
 ```
-ASSESS -> SPAWN -> MONITOR -> REVIEW -> HUMAN APPROVAL -> MERGE
+batch:      ASSESS -> SPAWN -> MONITOR -> REVIEW -> HUMAN APPROVAL -> MERGE
+autonomous: ASSESS -> SPAWN -> MONITOR -> REVIEW -> MERGE
 ```
 
 ### Status flow
