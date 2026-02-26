@@ -15,7 +15,7 @@ ROLE
 Ralph-Ban Orchestration
 - SessionStart: board snapshot, suggested next task
 - UserPromptSubmit: board diffs, dispatch/review nudges, stall detection
-- Stop: blocks exit on uncommitted changes, claimed cards, active work
+- Stop: blocks exit on uncommitted changes, claimed cards, and active work (batch: blocks on doing only; autonomous: blocks on todo + doing)
 - TeammateIdle: prevents idle when you own active cards (doing/todo)
 - TaskCompleted: validates your cards are in review before task completion
 - PreCompact: re-injects board state before context compression

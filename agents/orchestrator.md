@@ -108,7 +108,8 @@ its own work, never by another teammate's.
 |------|-----------|-----------|----------------|
 | Stop (uncommitted) | dirty working tree | agent's cwd/worktree | all agents |
 | Stop (claimed cards) | doing/todo cards | CLAUDE_AGENT_NAME | all agents |
-| Stop (board-wide) | any active work | name check | orchestrator only |
+| Stop (board-wide, batch) | doing cards | name check | orchestrator only |
+| Stop (board-wide, autonomous) | todo + doing cards | name check | orchestrator only |
 | TeammateIdle | doing/todo cards | teammate_name from stdin | teammates only |
 | TaskCompleted | doing cards | teammate_name from stdin | teammates only |
 | SessionStart | nothing (context injection) | n/a | all agents |
@@ -120,6 +121,18 @@ so their name matches what TeammateIdle and TaskCompleted check.
 
 Hook messages are informational. Stay focused on your current phase.
 </hooks>
+
+<stop_modes>
+Two modes control when the orchestrator is allowed to stop.
+
+- batch (default): Orchestrator dispatches a round of work, monitors it, then stops once doing is empty. Todo cards left on the board are fine — they're work for the next session. Good for human-in-the-loop sessions where you want to review progress between rounds.
+- autonomous: Orchestrator keeps dispatching until both todo and doing are empty. It won't stop while any unstarted or in-flight work remains. Good for overnight runs or when you want the board fully drained without intervention.
+
+Set the mode via `--stop-mode batch|autonomous` at launch or in `.ralph-ban/config.json`:
+  `{"stop_mode": "autonomous"}`
+
+The stop hook's `systemMessage` tells you which mode is active and why it blocked or allowed exit.
+</stop_modes>
 
 <permissions>
 Worker and reviewer agents have permissionMode: bypassPermissions in their
