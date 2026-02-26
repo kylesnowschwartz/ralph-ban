@@ -95,8 +95,19 @@ PHASE 5 - MERGE: After review approval
   batch mode:   Summarize changes and use AskUserQuestion: "Merge these changes to main?" You MUST get explicit human approval before merging in batch mode.
   autonomous mode: Reviewer approval is sufficient. Merge immediately and report what you merged.
 
-  For each approved card:
-    Merge the worktree branch to main
+  For each approved card, check for staleness before touching main:
+    1. git log --oneline <branch>..main
+       If no output: branch is current, skip to step 4.
+       If commits appear: main advanced while the worker ran — pull it into the branch first.
+    2. git checkout <branch> && git merge main
+       Resolve any conflicts here, in the branch, not in main.
+    3. Commit the resolution if needed, then verify tests still pass.
+    4. git checkout main && git merge <branch>
+       Because conflicts were already resolved, this merge is clean.
+  # See .agent-history/investigation-merge-to-staging.md for why staging was
+  # rejected in favour of this pre-merge check.
+
+  For each approved card (after the staleness check above):
     bl close <id>
   For rejected cards:
     Read the card to surface persisted feedback: bl show <id>
