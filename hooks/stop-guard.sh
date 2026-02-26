@@ -134,8 +134,19 @@ echo "$current_hash" > "$HASH_FILE"
 
 # --- Specific next-action guidance ---
 read todo_count doing_count <<<"$(count_active)"
+stop_mode=$(read_stop_mode)
 
-if [ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ]; then
+# In batch mode: only block on doing cards. Todo backlog doesn't prevent stopping —
+# the user dispatches a batch, the orchestrator finishes it, then exits cleanly.
+# In autonomous mode: block on todo + doing until the whole board is empty.
+if [ "$stop_mode" = "autonomous" ]; then
+  should_block=$([ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ] && echo "yes" || echo "no")
+else
+  # batch (default)
+  should_block=$([ "$doing_count" -gt 0 ] && echo "yes" || echo "no")
+fi
+
+if [ "$should_block" = "yes" ]; then
   # Try to identify the concrete next action from bl ready output
   next_action=""
 
@@ -143,8 +154,8 @@ if [ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ]; then
   unclaimed_doing=$("$BL" list --json 2>/dev/null | jq -r 'select(.status == "doing" and (.assigned_to == null or .assigned_to == "")) | "\(.id): \(.title)"' 2>/dev/null | head -1 || true)
   if [ -n "$unclaimed_doing" ]; then
     next_action="$unclaimed_doing is in doing with no assignee. Claim it or spawn a worker."
-  else
-    # Try bl ready --json for the highest-priority todo card
+  elif [ "$stop_mode" = "autonomous" ]; then
+    # In autonomous mode, suggest next todo card when no unclaimed doing work
     next_card=$("$BL" ready --json 2>/dev/null | jq -r 'select(.status == "todo") | "\(.id) — \(.title)"' 2>/dev/null | head -1 || true)
     if [ -n "$next_card" ]; then
       next_action="Next card to dispatch: $next_card"
@@ -152,18 +163,40 @@ if [ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ]; then
   fi
 
   if [ -n "$next_action" ]; then
-    jq -n --arg action "$next_action" '{
-      decision: "block",
-      reason: "Board has active work remaining",
-      systemMessage: ("Board has active work. " + $action)
-    }'
+    if [ "$stop_mode" = "autonomous" ]; then
+      jq -n --arg action "$next_action" --arg todo "$todo_count" --arg doing "$doing_count" '{
+        decision: "block",
+        reason: "Board has active work remaining",
+        systemMessage: ("Stop mode: autonomous. " + $todo + " todo and " + $doing + " doing cards remain. " + $action)
+      }'
+    else
+      jq -n --arg action "$next_action" --arg doing "$doing_count" '{
+        decision: "block",
+        reason: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping."),
+        systemMessage: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping. " + $action)
+      }'
+    fi
   else
-    jq -n --arg todo "$todo_count" --arg doing "$doing_count" '{
-      decision: "block",
-      reason: "Board has active work remaining",
-      systemMessage: ("Board has " + $todo + " todo and " + $doing + " doing items. Pick up the next task, or ask the user if they want you to stop despite remaining work.")
-    }'
+    if [ "$stop_mode" = "autonomous" ]; then
+      jq -n --arg todo "$todo_count" --arg doing "$doing_count" '{
+        decision: "block",
+        reason: "Board has active work remaining",
+        systemMessage: ("Stop mode: autonomous. " + $todo + " todo and " + $doing + " doing cards remain. Dispatch the next card or ask the user to switch to batch mode.")
+      }'
+    else
+      jq -n --arg doing "$doing_count" '{
+        decision: "block",
+        reason: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping."),
+        systemMessage: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping.")
+      }'
+    fi
   fi
 else
+  # Board is clear (or batch mode with no doing cards) — allow exit
+  if [ "$stop_mode" = "batch" ] && [ "$todo_count" -gt 0 ]; then
+    jq -n --arg todo "$todo_count" '{
+      systemMessage: ("Stop mode: batch. No cards in doing — free to stop. " + $todo + " todo cards remain for next session.")
+    }'
+  fi
   exit 0
 fi

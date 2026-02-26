@@ -291,3 +291,16 @@ detect_stalled_cards() {
 clear_progress_tracking() {
   rm -f "$PROGRESS_FILE"
 }
+
+# read_stop_mode returns the configured stop mode: "batch" or "autonomous".
+# Reads from .ralph-ban/config.json; defaults to "batch" if missing or unreadable.
+# batch:      block only on doing cards — orchestrator stops once dispatched work completes.
+# autonomous: block on todo + doing — orchestrator grinds until the board is empty.
+read_stop_mode() {
+  local config_file="${_GIT_ROOT}/.ralph-ban/config.json"
+  if [ -f "$config_file" ]; then
+    jq -r '.stop_mode // "batch"' "$config_file" 2>/dev/null || echo "batch"
+  else
+    echo "batch"
+  fi
+}

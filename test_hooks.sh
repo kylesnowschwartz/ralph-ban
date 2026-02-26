@@ -161,14 +161,15 @@ test_board_sync_detects_new_card() {
 
 # --- stop-guard.sh ---
 
-test_stop_guard_blocks_with_todo() {
+test_stop_guard_allows_todo_in_batch_mode() {
   setup
   bl create "Active Todo" >/dev/null
+  # batch mode (default) — todo cards alone do not block
 
   local out
   out=$("$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
-  assert_contains "$out" '"decision"' "stop-guard outputs decision"
-  assert_contains "$out" '"block"' "stop-guard blocks when todo items exist"
+  assert_not_contains "$out" '"block"' "stop-guard allows exit in batch mode when only todo items exist"
+  assert_contains "$out" "batch" "stop-guard reports batch mode when todo cards remain"
   teardown
 }
 
@@ -291,13 +292,16 @@ test_stop_guard_allows_worker_with_no_claimed_cards() {
   teardown
 }
 
-test_stop_guard_blocks_orchestrator_with_active_work() {
+test_stop_guard_blocks_orchestrator_with_doing_work() {
   setup
-  bl create "Active Todo" >/dev/null
-  # Orchestrator is blocked by board-wide active work
+  local create_out id
+  create_out=$(bl create "Active Doing")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  # Orchestrator is blocked by doing work in batch mode (the default)
   local out
   out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
-  assert_contains "$out" '"block"' "stop-guard blocks orchestrator when active work remains"
+  assert_contains "$out" '"block"' "stop-guard blocks orchestrator when doing work remains"
   teardown
 }
 
@@ -471,6 +475,7 @@ test_stop_guard_stall_resets_on_progress() {
   local create_out id
   create_out=$(bl create "Progressing Task")
   id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
   # Start with a stale hash (different from current board state)
   mkdir -p .ralph-ban
   echo "deadbeef_old_hash" > .ralph-ban/.stop-board-hash
@@ -478,8 +483,8 @@ test_stop_guard_stall_resets_on_progress() {
 
   local out
   out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
-  # Board changed (hash differs), so stall resets and hook still blocks on active work
-  assert_contains "$out" '"block"' "stop-guard still blocks when progress detected and work remains"
+  # Board changed (hash differs), so stall resets and hook still blocks on doing work
+  assert_contains "$out" '"block"' "stop-guard still blocks when progress detected and doing work remains"
   local cycles
   cycles=$(cat .ralph-ban/.stop-cycles 2>/dev/null || echo "")
   if [ "$cycles" = "0" ]; then
@@ -494,6 +499,8 @@ test_stop_guard_stall_resets_on_progress() {
 test_stop_guard_specific_guidance_next_todo() {
   setup
   bl create "Important Feature" >/dev/null
+  # autonomous mode: todo cards block and produce per-card guidance
+  echo '{"stop_mode":"autonomous"}' > .ralph-ban/config.json
 
   local out
   out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
@@ -517,6 +524,86 @@ test_stop_guard_specific_guidance_unclaimed_doing() {
   teardown
 }
 
+# --- stop-guard.sh stop_mode config ---
+
+test_stop_guard_batch_mode_allows_todo_only() {
+  setup
+  bl create "Pending Todo" >/dev/null
+  # Explicit batch mode config
+  echo '{"stop_mode":"batch"}' > .ralph-ban/config.json
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "batch mode: orchestrator allowed to stop with only todo cards"
+  assert_contains "$out" "batch" "batch mode: reports mode in systemMessage"
+  teardown
+}
+
+test_stop_guard_batch_mode_blocks_doing() {
+  setup
+  local create_out id
+  create_out=$(bl create "In Flight")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  echo '{"stop_mode":"batch"}' > .ralph-ban/config.json
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "batch mode: orchestrator blocked while doing cards exist"
+  assert_contains "$out" "batch" "batch mode: reports mode in block message"
+  teardown
+}
+
+test_stop_guard_autonomous_mode_blocks_todo() {
+  setup
+  bl create "Pending Todo" >/dev/null
+  echo '{"stop_mode":"autonomous"}' > .ralph-ban/config.json
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "autonomous mode: orchestrator blocked by todo cards"
+  assert_contains "$out" "autonomous" "autonomous mode: reports mode in block message"
+  teardown
+}
+
+test_stop_guard_autonomous_mode_blocks_todo_and_doing() {
+  setup
+  bl create "Pending Todo" >/dev/null
+  local create_out id
+  create_out=$(bl create "In Flight")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  echo '{"stop_mode":"autonomous"}' > .ralph-ban/config.json
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "autonomous mode: orchestrator blocked by todo + doing cards"
+  teardown
+}
+
+test_stop_guard_missing_config_defaults_to_batch() {
+  setup
+  bl create "Pending Todo" >/dev/null
+  # No config.json at all — should default to batch (allow stop with only todo)
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "missing config defaults to batch mode (todo does not block)"
+  teardown
+}
+
+test_stop_guard_missing_stop_mode_field_defaults_to_batch() {
+  setup
+  bl create "Pending Todo" >/dev/null
+  # Config exists but stop_mode is absent — should default to batch
+  echo '{"wip_limits":{"doing":3}}' > .ralph-ban/config.json
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_not_contains "$out" '"block"' "missing stop_mode field defaults to batch (todo does not block)"
+  teardown
+}
+
 # --- Run all tests ---
 
 echo "=== ralph-ban Hook Tests ==="
@@ -528,7 +615,7 @@ test_session_start_creates_snapshot
 test_board_sync_no_change
 test_board_sync_detects_status_change
 test_board_sync_detects_new_card
-test_stop_guard_blocks_with_todo
+test_stop_guard_allows_todo_in_batch_mode
 test_stop_guard_blocks_with_doing
 test_stop_guard_allows_empty
 test_stop_guard_allows_only_done
@@ -538,7 +625,7 @@ test_board_state_count_active
 test_stop_guard_allows_on_stop_hook_active
 test_stop_guard_respects_disable_marker
 test_stop_guard_allows_worker_with_no_claimed_cards
-test_stop_guard_blocks_orchestrator_with_active_work
+test_stop_guard_blocks_orchestrator_with_doing_work
 test_board_sync_tracks_stall
 test_stop_guard_blocks_teammate_uncommitted
 test_teammate_idle_allows_no_cards
@@ -550,6 +637,12 @@ test_stop_guard_stall_detection_allows_after_max_stalls
 test_stop_guard_stall_resets_on_progress
 test_stop_guard_specific_guidance_next_todo
 test_stop_guard_specific_guidance_unclaimed_doing
+test_stop_guard_batch_mode_allows_todo_only
+test_stop_guard_batch_mode_blocks_doing
+test_stop_guard_autonomous_mode_blocks_todo
+test_stop_guard_autonomous_mode_blocks_todo_and_doing
+test_stop_guard_missing_config_defaults_to_batch
+test_stop_guard_missing_stop_mode_field_defaults_to_batch
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
