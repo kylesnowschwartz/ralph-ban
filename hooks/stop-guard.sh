@@ -12,12 +12,38 @@ if [ -f "${_STOP_ROOT}/.ralph-ban/disabled" ]; then
   exit 0
 fi
 
+STOP_MSG_HASH_FILE="${_STOP_ROOT}/.ralph-ban/.stop-last-msg-hash"
+
 # --- Fail-open: any error silently allows exit ---
 trap 'exit 0' ERR
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
+
+# --- Debounce: suppress repeated identical board-state block messages ---
+# Early-exit blocks (uncommitted changes, anti-loop, team bypass) bypass this —
+# they are always relevant. Only board-state blocks at the bottom are debounced.
+#
+# Takes JSON on stdin. If systemMessage content matches the last emission,
+# strips systemMessage from the output (decision+reason still flow through).
+# When the message is new, saves the hash and emits the full JSON.
+debounce_stop_message() {
+  local json
+  json=$(cat)
+  local msg_hash
+  msg_hash=$(echo "$json" | jq -r '.systemMessage // ""' | shasum -a 256 | cut -d' ' -f1)
+  local last_hash
+  last_hash=$(cat "$STOP_MSG_HASH_FILE" 2>/dev/null || echo "")
+
+  if [ "$msg_hash" = "$last_hash" ]; then
+    # Same message — strip systemMessage to reduce noise
+    echo "$json" | jq 'del(.systemMessage)'
+  else
+    echo "$msg_hash" > "$STOP_MSG_HASH_FILE"
+    echo "$json"
+  fi
+}
 
 # --- Read stdin (JSON from Claude Code) ---
 input=""
@@ -168,13 +194,13 @@ if [ "$should_block" = "yes" ]; then
         decision: "block",
         reason: "Board has active work remaining",
         systemMessage: ("Stop mode: autonomous. " + $todo + " todo and " + $doing + " doing cards remain. " + $action)
-      }'
+      }' | debounce_stop_message
     else
       jq -n --arg action "$next_action" --arg doing "$doing_count" '{
         decision: "block",
         reason: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping."),
         systemMessage: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping. " + $action)
-      }'
+      }' | debounce_stop_message
     fi
   else
     if [ "$stop_mode" = "autonomous" ]; then
@@ -182,17 +208,19 @@ if [ "$should_block" = "yes" ]; then
         decision: "block",
         reason: "Board has active work remaining",
         systemMessage: ("Stop mode: autonomous. " + $todo + " todo and " + $doing + " doing cards remain. Dispatch the next card or ask the user to switch to batch mode.")
-      }'
+      }' | debounce_stop_message
     else
       jq -n --arg doing "$doing_count" '{
         decision: "block",
         reason: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping."),
         systemMessage: ("Stop mode: batch. " + $doing + " cards in doing — finish or unclaim them before stopping.")
-      }'
+      }' | debounce_stop_message
     fi
   fi
 else
-  # Board is clear (or batch mode with no doing cards) — allow exit
+  # Board is clear (or batch mode with no doing cards) — allow exit.
+  # Reset the debounce hash so the next block always shows its first message.
+  rm -f "$STOP_MSG_HASH_FILE"
   if [ "$stop_mode" = "batch" ] && [ "$todo_count" -gt 0 ]; then
     jq -n --arg todo "$todo_count" '{
       systemMessage: ("Stop mode: batch. No cards in doing — free to stop. " + $todo + " todo cards remain for next session.")
