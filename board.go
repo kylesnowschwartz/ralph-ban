@@ -57,7 +57,7 @@ type board struct {
 	// Filter state: activeFilter narrows visible cards by priority, type, or assignee.
 	// allIssues caches every issue so filter steps can be rebuilt from the full set
 	// (not just what's currently visible after a previous filter was applied).
-	// allBlockedIDs mirrors the blockedIDs from the latest refresh so the "[locked]"
+	// allBlockedIDs mirrors the blockedIDs from the latest refresh so the lock icon
 	// indicator is preserved when cycling filters between poll ticks.
 	filter        activeFilter
 	allIssues     []*beadslite.Issue
@@ -385,7 +385,7 @@ func (b *board) loadFromStore() tea.Cmd {
 // When a filter is active, each column's items are narrowed to only matching cards.
 func (b *board) applyRefresh(msg refreshMsg) {
 	// Cache the full issue list and blocked IDs so filter steps can be rebuilt
-	// from all issues without losing the "[locked]" indicator between poll ticks.
+	// from all issues without losing the lock icon indicator between poll ticks.
 	b.allIssues = msg.issues
 	b.allBlockedIDs = msg.blockedIDs
 

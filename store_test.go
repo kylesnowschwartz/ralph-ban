@@ -527,7 +527,8 @@ func TestComputeBlockedIDs(t *testing.T) {
 	}
 }
 
-// TestCard_Description_Blocked checks that the lock indicator appears.
+// TestCard_Description_Blocked checks that the lock icon appears for blocked cards
+// and is absent for unblocked cards.
 func TestCard_Description_Blocked(t *testing.T) {
 	issue := makeIssue("bl-x", "Test", beadslite.StatusTodo)
 
@@ -537,11 +538,13 @@ func TestCard_Description_Blocked(t *testing.T) {
 	freeDesc := free.Description()
 	blockedDesc := blocked.Description()
 
-	if strings.Contains(freeDesc, "[locked]") {
-		t.Errorf("free card description should not contain [locked]: %q", freeDesc)
+	// Lock icon (nf-md-lock U+F033E) must not appear on unblocked cards.
+	if strings.Contains(freeDesc, "󰌾") {
+		t.Errorf("free card description should not contain lock icon: %q", freeDesc)
 	}
-	if !strings.Contains(blockedDesc, "[locked]") {
-		t.Errorf("blocked card description should contain [locked]: %q", blockedDesc)
+	// Lock icon must appear on blocked cards in place of the old [locked] text.
+	if !strings.Contains(blockedDesc, "󰌾") {
+		t.Errorf("blocked card description should contain lock icon: %q", blockedDesc)
 	}
 }
 
