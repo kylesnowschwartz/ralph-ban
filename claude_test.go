@@ -15,7 +15,6 @@ func TestBuildClaudeArgs(t *testing.T) {
 		settingsPath string
 		model        string
 		autonomous   bool
-		teammateMode string
 		prompt       string
 		resume       string
 		wantContains []string
@@ -27,13 +26,11 @@ func TestBuildClaudeArgs(t *testing.T) {
 			settingsPath: "/project/.claude-plugin/settings.json",
 			model:        "",
 			autonomous:   false,
-			teammateMode: "in-process",
 			prompt:       "",
 			wantContains: []string{
 				"--plugin-dir", "/project",
 				"--agent", "orchestrator",
 				"--settings", "/project/.claude-plugin/settings.json",
-				"--teammate-mode", "in-process",
 				"State your role and mission",
 			},
 			wantAbsent: []string{
@@ -48,12 +45,10 @@ func TestBuildClaudeArgs(t *testing.T) {
 			settingsPath: "/project/.claude-plugin/settings.json",
 			model:        "sonnet",
 			autonomous:   true,
-			teammateMode: "split-pane",
 			prompt:       "",
 			wantContains: []string{
 				"--model", "sonnet",
 				"--dangerously-skip-permissions",
-				"--teammate-mode", "split-pane",
 			},
 		},
 		{
@@ -62,7 +57,6 @@ func TestBuildClaudeArgs(t *testing.T) {
 			settingsPath: "/project/.claude-plugin/settings.json",
 			model:        "",
 			autonomous:   false,
-			teammateMode: "",
 			prompt:       "Do something specific",
 			wantContains: []string{"Do something specific"},
 			wantAbsent:   []string{"State your role"},
@@ -73,7 +67,6 @@ func TestBuildClaudeArgs(t *testing.T) {
 			settingsPath: "/project/.claude-plugin/settings.json",
 			model:        "",
 			autonomous:   false,
-			teammateMode: "in-process",
 			prompt:       "",
 			resume:       "abc-123-session-id",
 			wantContains: []string{
@@ -90,7 +83,7 @@ func TestBuildClaudeArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			args := buildClaudeArgs(tt.pluginDir, tt.settingsPath, tt.model, tt.autonomous, tt.teammateMode, tt.prompt, tt.resume)
+			args := buildClaudeArgs(tt.pluginDir, tt.settingsPath, tt.model, tt.autonomous, tt.prompt, tt.resume)
 			joined := strings.Join(args, " ")
 
 			t.Logf("args: %v", args)

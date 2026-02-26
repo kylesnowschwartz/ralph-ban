@@ -18,7 +18,6 @@ func runClaude(args []string) {
 	name := fs.String("name", "claude", "agent name (flows to hooks via CLAUDE_AGENT_NAME)")
 	model := fs.String("model", "", "override the agent's default model (opus, sonnet, haiku)")
 	autonomous := fs.Bool("autonomous", false, "skip permission prompts (dangerously-skip-permissions)")
-	teammateMode := fs.String("teammate-mode", "in-process", "teammate display mode (in-process, split-pane, auto)")
 	prompt := fs.String("prompt", "", "override the initial prompt sent to claude")
 	resume := fs.String("resume", "", "resume a session by ID, or pass empty string for interactive picker")
 	stopMode := fs.String("stop-mode", "", "stop hook mode: 'batch' (stop after dispatched work) or 'autonomous' (work until board empty)")
@@ -52,7 +51,7 @@ func runClaude(args []string) {
 		}
 	}
 
-	claudeArgs := buildClaudeArgs(pluginDir, settingsPath, *model, *autonomous, *teammateMode, *prompt, *resume)
+	claudeArgs := buildClaudeArgs(pluginDir, settingsPath, *model, *autonomous, *prompt, *resume)
 
 	// Set agent name so hooks can identify this session.
 	os.Setenv("CLAUDE_AGENT_NAME", *name)
@@ -73,7 +72,7 @@ func runClaude(args []string) {
 // agents/orchestrator.md and applies its frontmatter (model, isolation, etc.).
 // settingsPath is passed via --settings so hook commands resolve correctly
 // for both the orchestrator and workers spawned in isolated worktrees.
-func buildClaudeArgs(pluginDir, settingsPath, model string, autonomous bool, teammateMode, prompt, resume string) []string {
+func buildClaudeArgs(pluginDir, settingsPath, model string, autonomous bool, prompt, resume string) []string {
 	args := []string{
 		"--plugin-dir", pluginDir,
 		"--settings", settingsPath,
@@ -94,10 +93,6 @@ func buildClaudeArgs(pluginDir, settingsPath, model string, autonomous bool, tea
 
 	if autonomous {
 		args = append(args, "--dangerously-skip-permissions")
-	}
-
-	if teammateMode != "" {
-		args = append(args, "--teammate-mode", teammateMode)
 	}
 
 	// Initial prompt as positional argument. Skipped when resuming —
