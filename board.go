@@ -262,7 +262,7 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, nil
 
 		case key.Matches(msg, keys.Undo):
-			return b, b.undoLastMove()
+			return b, b.undoLast()
 
 		case key.Matches(msg, keys.Help):
 			b.help.ShowAll = !b.help.ShowAll
@@ -373,6 +373,35 @@ func (b *board) View() string {
 	return lipgloss.NewStyle().MaxWidth(b.termWidth).Render(full)
 }
 
+// findCardIndex returns the index of the card with the given ID in items, or -1.
+func findCardIndex(items []list.Item, id string) int {
+	for i, item := range items {
+		if c, ok := item.(card); ok && c.issue.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// findCardInBoard searches all columns for a card by ID.
+// Returns the column index, item index, and whether it was found.
+func findCardInBoard(cols [numColumns]column, id string) (int, int, bool) {
+	for ci := range cols {
+		items := cols[ci].list.Items()
+		if idx := findCardIndex(items, id); idx >= 0 {
+			return ci, idx, true
+		}
+	}
+	return 0, 0, false
+}
+
+// sortByPriority sorts items by ascending priority (P0 first).
+func sortByPriority(items []list.Item) {
+	sort.Slice(items, func(a, b int) bool {
+		return items[a].(card).issue.Priority < items[b].(card).issue.Priority
+	})
+}
+
 // loadFromStore returns a command that loads all issues and sets up column items.
 func (b *board) loadFromStore() tea.Cmd {
 	return func() tea.Msg {
@@ -457,12 +486,10 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 	return b.applyMove(msg.card, result)
 }
 
-// applyMove mutates column state and persists the status change.
-// Factored out so both handleMove and handleClose can reuse the column-mutation logic.
-func (b *board) applyMove(cd card, result *moveResult) tea.Cmd {
-	// Push a move undo entry before mutating the card's status.
-	// The card snapshot captured here retains its pre-move status so that
-	// undoLastMove can restore the correct status in the target column.
+// applyColumnMove performs the column mutation shared by regular moves and closes:
+// push undo, update status, remove from source, add to target, shift focus, update layout.
+// The caller is responsible for persisting the change (persistMove vs persistClose).
+func (b *board) applyColumnMove(cd card, result *moveResult) {
 	b.undo.push(undoEntry{
 		kind: undoMove,
 		move: &moveMsg{
@@ -474,28 +501,25 @@ func (b *board) applyMove(cd card, result *moveResult) tea.Cmd {
 
 	cd.issue.Status = result.newStatus
 
-	// Remove from source column (atomic: both remove and add happen here)
-	srcItems := b.cols[result.source].list.Items()
-	for i, item := range srcItems {
-		if c, ok := item.(card); ok && c.issue.ID == result.cardID {
-			b.cols[result.source].list.RemoveItem(i)
-			break
-		}
+	if idx := findCardIndex(b.cols[result.source].list.Items(), result.cardID); idx >= 0 {
+		b.cols[result.source].list.RemoveItem(idx)
 	}
 
-	// Add to target column
 	items := b.cols[result.target].list.Items()
 	items = append(items, cd)
 	b.cols[result.target].SetItems(items)
 
-	// Follow the card: shift focus to the target column and select it
 	b.cols[b.focused].Blur()
 	b.focused = result.target
 	b.cols[b.focused].Focus()
 	b.cols[result.target].list.Select(len(items) - 1)
 	b.updatePan()
 	b.resizeColumns()
+}
 
+// applyMove mutates column state and persists the status change.
+func (b *board) applyMove(cd card, result *moveResult) tea.Cmd {
+	b.applyColumnMove(cd, result)
 	return persistMove(b.store, result.cardID, result.target)
 }
 
@@ -519,27 +543,20 @@ func (b *board) handlePriority(msg priorityMsg) tea.Cmd {
 	// Re-sort the focused column to reflect the new priority order
 	col := &b.cols[b.focused]
 	items := col.list.Items()
-	sort.Slice(items, func(a, bIdx int) bool {
-		ca := items[a].(card)
-		cb := items[bIdx].(card)
-		return ca.issue.Priority < cb.issue.Priority
-	})
+	sortByPriority(items)
 	col.SetItems(items)
 
 	// Re-select the card that was adjusted
-	for i, item := range col.list.Items() {
-		if c, ok := item.(card); ok && c.issue.ID == msg.card.issue.ID {
-			col.list.Select(i)
-			break
-		}
+	if ri := findCardIndex(col.list.Items(), msg.card.issue.ID); ri >= 0 {
+		col.list.Select(ri)
 	}
 
 	return persistUpdate(b.store, msg.card.issue)
 }
 
-// undoLastMove pops the most recent entry from the undo stack and reverses it.
+// undoLast pops the most recent entry from the undo stack and reverses it.
 // Each press of 'u' walks one step further back through the operation history.
-func (b *board) undoLastMove() tea.Cmd {
+func (b *board) undoLast() tea.Cmd {
 	entry, ok := b.undo.pop()
 	if !ok {
 		return nil
@@ -566,12 +583,8 @@ func (b *board) applyUndoMove(lastMove *moveMsg) tea.Cmd {
 	}
 
 	// Remove the card from where it landed (result.source = current location)
-	items := b.cols[result.source].list.Items()
-	for i, item := range items {
-		if c, ok := item.(card); ok && c.issue.ID == result.cardID {
-			b.cols[result.source].list.RemoveItem(i)
-			break
-		}
+	if idx := findCardIndex(b.cols[result.source].list.Items(), result.cardID); idx >= 0 {
+		b.cols[result.source].list.RemoveItem(idx)
 	}
 
 	// Put it back in the original column (result.target = original location)
@@ -597,32 +610,20 @@ func (b *board) applyUndoPriority(entry undoEntry) tea.Cmd {
 	items := col.list.Items()
 
 	// Find the card and restore its old priority.
-	var targetIssue *beadslite.Issue
-	for _, item := range items {
-		if c, ok := item.(card); ok && c.issue.ID == entry.priorityCardID {
-			c.issue.Priority = entry.oldPriority
-			targetIssue = c.issue
-			break
-		}
-	}
-	if targetIssue == nil {
+	idx := findCardIndex(items, entry.priorityCardID)
+	if idx < 0 {
 		return nil // card no longer in this column (external change)
 	}
+	items[idx].(card).issue.Priority = entry.oldPriority
+	targetIssue := items[idx].(card).issue
 
 	// Re-sort the column with the restored priority.
-	sort.Slice(items, func(a, bIdx int) bool {
-		ca := items[a].(card)
-		cb := items[bIdx].(card)
-		return ca.issue.Priority < cb.issue.Priority
-	})
+	sortByPriority(items)
 	col.SetItems(items)
 
 	// Re-select the card that was restored.
-	for i, item := range col.list.Items() {
-		if c, ok := item.(card); ok && c.issue.ID == entry.priorityCardID {
-			col.list.Select(i)
-			break
-		}
+	if ri := findCardIndex(col.list.Items(), entry.priorityCardID); ri >= 0 {
+		col.list.Select(ri)
 	}
 
 	return persistUpdate(b.store, targetIssue)
@@ -631,12 +632,9 @@ func (b *board) applyUndoPriority(entry undoEntry) tea.Cmd {
 // applyUndoEdit restores an issue to its state before the last edit.
 func (b *board) applyUndoEdit(oldIssue *beadslite.Issue) tea.Cmd {
 	col := statusToColumn[oldIssue.Status]
-	colItems := b.cols[col].list.Items()
-	for i, item := range colItems {
-		if c, ok := item.(card); ok && c.issue.ID == oldIssue.ID {
-			b.cols[col].list.SetItem(i, card{issue: oldIssue})
-			return persistUpdate(b.store, oldIssue)
-		}
+	if idx := findCardIndex(b.cols[col].list.Items(), oldIssue.ID); idx >= 0 {
+		b.cols[col].list.SetItem(idx, card{issue: oldIssue})
+		return persistUpdate(b.store, oldIssue)
 	}
 	return nil // card no longer present (external change)
 }
@@ -653,19 +651,15 @@ func (b *board) applyUndoDelete(issue *beadslite.Issue) tea.Cmd {
 // handleDelete snapshots the card before deletion so the operation can be undone.
 func (b *board) handleDelete(msg deleteMsg) tea.Cmd {
 	// Search all columns for the card so we can snapshot it.
-	for i := columnIndex(0); i < numColumns; i++ {
-		for _, item := range b.cols[i].list.Items() {
-			if c, ok := item.(card); ok && c.issue.ID == msg.id {
-				// Deep-copy the issue so the undo entry is independent of
-				// any subsequent pointer mutations.
-				snapshot := *c.issue
-				b.undo.push(undoEntry{
-					kind:  undoDelete,
-					issue: &snapshot,
-				})
-				break
-			}
-		}
+	if ci, ii, ok := findCardInBoard(b.cols, msg.id); ok {
+		c := b.cols[ci].list.Items()[ii].(card)
+		// Deep-copy the issue so the undo entry is independent of
+		// any subsequent pointer mutations.
+		snapshot := *c.issue
+		b.undo.push(undoEntry{
+			kind:  undoDelete,
+			issue: &snapshot,
+		})
 	}
 	return persistDelete(b.store, msg.id)
 }
@@ -685,20 +679,17 @@ func (b *board) handleSave(msg saveMsg) tea.Cmd {
 	}
 
 	// Check if this is an edit (issue already exists in a column)
-	for i := columnIndex(0); i < numColumns; i++ {
-		for j, item := range b.cols[i].list.Items() {
-			if c, ok := item.(card); ok && c.issue.ID == msg.issue.ID {
-				// Snapshot the old state before overwriting so the edit can be undone.
-				oldIssue := *c.issue
-				b.undo.push(undoEntry{
-					kind:  undoEdit,
-					issue: &oldIssue,
-				})
-				// Update in place
-				b.cols[i].list.SetItem(j, card{issue: msg.issue})
-				return persistUpdate(b.store, msg.issue)
-			}
-		}
+	if ci, ii, ok := findCardInBoard(b.cols, msg.issue.ID); ok {
+		c := b.cols[ci].list.Items()[ii].(card)
+		// Snapshot the old state before overwriting so the edit can be undone.
+		oldIssue := *c.issue
+		b.undo.push(undoEntry{
+			kind:  undoEdit,
+			issue: &oldIssue,
+		})
+		// Update in place
+		b.cols[ci].list.SetItem(ii, card{issue: msg.issue})
+		return persistUpdate(b.store, msg.issue)
 	}
 
 	// New card: add to the appropriate column
@@ -731,36 +722,8 @@ func (b *board) handleClose(msg closeMsg) tea.Cmd {
 
 	b.err = nil
 
-	// Push a move undo entry so the close can be reversed just like a regular move.
-	b.undo.push(undoEntry{
-		kind: undoMove,
-		move: &moveMsg{
-			card:   msg.card,
-			source: msg.source,
-			target: colDone,
-		},
-	})
-
-	msg.card.issue.Status = result.newStatus
-
-	srcItems := b.cols[result.source].list.Items()
-	for i, item := range srcItems {
-		if c, ok := item.(card); ok && c.issue.ID == result.cardID {
-			b.cols[result.source].list.RemoveItem(i)
-			break
-		}
-	}
-
-	items := b.cols[colDone].list.Items()
-	items = append(items, msg.card)
-	b.cols[colDone].SetItems(items)
-
-	b.cols[b.focused].Blur()
-	b.focused = colDone
-	b.cols[b.focused].Focus()
-	b.cols[colDone].list.Select(len(items) - 1)
-	b.updatePan()
-	b.resizeColumns()
+	// Reuse applyColumnMove for undo push, status update, column mutation, and layout.
+	b.applyColumnMove(msg.card, result)
 
 	return persistClose(b.store, result.cardID, msg.resolution)
 }

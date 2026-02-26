@@ -144,7 +144,7 @@ func TestHandlePriority_ResortsColumn(t *testing.T) {
 	}
 }
 
-// --- undoLastMove ---
+// --- undoLast ---
 
 func TestUndoLastMove_ReversesMove(t *testing.T) {
 	b := newTestBoard(t)
@@ -166,10 +166,10 @@ func TestUndoLastMove_ReversesMove(t *testing.T) {
 		},
 	})
 
-	cmd := b.undoLastMove()
+	cmd := b.undoLast()
 
 	if cmd == nil {
-		t.Fatal("undoLastMove should return a persist command")
+		t.Fatal("undoLast should return a persist command")
 	}
 
 	// Card should be back in todo
@@ -198,10 +198,10 @@ func TestUndoLastMove_ReversesMove(t *testing.T) {
 func TestUndoLastMove_NilWhenNoHistory(t *testing.T) {
 	b := newTestBoard(t)
 
-	cmd := b.undoLastMove()
+	cmd := b.undoLast()
 
 	if cmd != nil {
-		t.Error("undoLastMove should return nil when no move to undo")
+		t.Error("undoLast should return nil when no move to undo")
 	}
 }
 
@@ -229,7 +229,7 @@ func TestUndoLastMove_MultiStep(t *testing.T) {
 	b.cols[colReview].Focus()
 
 	// First undo: reverses B back to doing
-	cmd := b.undoLastMove()
+	cmd := b.undoLast()
 	if cmd == nil {
 		t.Fatal("first undo should return a command")
 	}
@@ -241,7 +241,7 @@ func TestUndoLastMove_MultiStep(t *testing.T) {
 	}
 
 	// Second undo: reverses A back to todo
-	cmd = b.undoLastMove()
+	cmd = b.undoLast()
 	if cmd == nil {
 		t.Fatal("second undo should return a command")
 	}
@@ -273,7 +273,7 @@ func TestUndoLastMove_UndoPriorityChange(t *testing.T) {
 		oldPriority:    2,
 	})
 
-	cmd := b.undoLastMove()
+	cmd := b.undoLast()
 	if cmd == nil {
 		t.Fatal("undo priority change should return a persist command")
 	}
@@ -307,7 +307,7 @@ func TestUndoLastMove_UndoEdit(t *testing.T) {
 		issue: &snapshot,
 	})
 
-	cmd := b.undoLastMove()
+	cmd := b.undoLast()
 	if cmd == nil {
 		t.Fatal("undo edit should return a persist command")
 	}
@@ -338,7 +338,7 @@ func TestUndoLastMove_UndoDelete(t *testing.T) {
 		issue: &snapshot,
 	})
 
-	cmd := b.undoLastMove()
+	cmd := b.undoLast()
 	if cmd == nil {
 		t.Fatal("undo delete should return a persist command")
 	}
