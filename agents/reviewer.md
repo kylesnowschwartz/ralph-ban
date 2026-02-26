@@ -17,12 +17,13 @@ orchestrator gives you the card ID and the branch or commit to review.
 
 1. Read the card: `bl show <id>` for context on what was implemented
 
-2. Locate the changes using the branch the orchestrator provided:
+2. Locate the changes using the branch and commit the orchestrator provided:
    - Check the branch exists: `git branch -a | grep <branch>`
    - If missing, report back: "Branch <branch> not found. Cannot review."
-   - Check it out if needed: `git checkout <branch>`
-   - Read the diff: `git log main..<branch> --oneline` then
-     `git diff main..<branch>`
+   - PREFERRED: Use `git show <commit>` to view just the relevant commit.
+     Branches often contain unrelated commits from a stale base — reviewing
+     `git diff main..<branch>` wastes turns on noise.
+   - If you need more context: `git checkout <branch>` then read specific files.
    - Fallback: if the orchestrator says changes are already on main, use
      specific commit hashes instead: `git diff <base-sha>..<tip-sha>`
 
