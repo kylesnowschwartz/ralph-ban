@@ -15,7 +15,11 @@ type card struct {
 func (c card) Title() string       { return c.issue.Title }
 func (c card) FilterValue() string { return c.issue.Title }
 
-// Description shows priority, type, and ID on the second line of each card.
+// Description shows priority, type, ID, and assignee (if claimed) on the second line of each card.
 func (c card) Description() string {
-	return fmt.Sprintf("P%d %s · %s", c.issue.Priority, c.issue.Type, c.issue.ID)
+	base := fmt.Sprintf("P%d %s · %s", c.issue.Priority, c.issue.Type, c.issue.ID)
+	if c.issue.AssignedTo == "" {
+		return base
+	}
+	return base + " @" + c.issue.AssignedTo
 }
