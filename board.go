@@ -51,10 +51,13 @@ type board struct {
 	allItems    [numColumns][]list.Item
 
 	// Filter state: activeFilter narrows visible cards by priority, type, or assignee.
-	// allIssues caches every issue so filter steps can be built from the full set
+	// allIssues caches every issue so filter steps can be rebuilt from the full set
 	// (not just what's currently visible after a previous filter was applied).
-	filter    activeFilter
-	allIssues []*beadslite.Issue
+	// allBlockedIDs mirrors the blockedIDs from the latest refresh so the "[locked]"
+	// indicator is preserved when cycling filters between poll ticks.
+	filter        activeFilter
+	allIssues     []*beadslite.Issue
+	allBlockedIDs map[string]bool
 
 	// Layout panning
 	termWidth  int
@@ -342,9 +345,10 @@ func (b *board) loadFromStore() tea.Cmd {
 // matching items are shown so the live filter stays consistent across polls.
 // When a filter is active, each column's items are narrowed to only matching cards.
 func (b *board) applyRefresh(msg refreshMsg) {
-	// Cache the full issue list so filter steps can be rebuilt from all issues,
-	// not just the subset currently visible.
+	// Cache the full issue list and blocked IDs so filter steps can be rebuilt
+	// from all issues without losing the "[locked]" indicator between poll ticks.
 	b.allIssues = msg.issues
+	b.allBlockedIDs = msg.blockedIDs
 
 	buckets := partitionByStatus(msg.issues, msg.blockedIDs)
 	for i := columnIndex(0); i < numColumns; i++ {
@@ -1026,8 +1030,9 @@ func (b *board) clearFilter() {
 
 // applyActiveFilter re-applies the current filter to every column using the
 // cached allIssues list so the visible set is always consistent with the filter state.
+// allBlockedIDs is passed so the "[locked]" indicator is preserved between poll ticks.
 func (b *board) applyActiveFilter() {
-	buckets := partitionByStatus(b.allIssues, nil)
+	buckets := partitionByStatus(b.allIssues, b.allBlockedIDs)
 	for i := columnIndex(0); i < numColumns; i++ {
 		items := buckets[i]
 		if items == nil {

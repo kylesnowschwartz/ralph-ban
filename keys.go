@@ -3,28 +3,27 @@ package main
 import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
-	Up           key.Binding
-	Down         key.Binding
-	Left         key.Binding
-	Right        key.Binding
-	New          key.Binding
-	Edit         key.Binding
-	Delete       key.Binding
-	MoveRight    key.Binding
-	MoveLeft     key.Binding
-	Undo         key.Binding
-	Detail       key.Binding
-	PriorityUp   key.Binding
-	PriorityDn   key.Binding
-	Search       key.Binding
-	FilterNext   key.Binding
-	FilterPrev   key.Binding
-	FilterClear  key.Binding
-	Help         key.Binding
-	Quit         key.Binding
-	Suspend      key.Binding
-	Back         key.Binding
-	CtrlClick    key.Binding // display-only: mouse events bypass key bindings
+	Up         key.Binding
+	Down       key.Binding
+	Left       key.Binding
+	Right      key.Binding
+	New        key.Binding
+	Edit       key.Binding
+	Delete     key.Binding
+	MoveRight  key.Binding
+	MoveLeft   key.Binding
+	Undo       key.Binding
+	Detail     key.Binding
+	PriorityUp key.Binding
+	PriorityDn key.Binding
+	Search     key.Binding
+	FilterNext key.Binding
+	FilterPrev key.Binding
+	Help       key.Binding
+	Quit       key.Binding
+	Suspend    key.Binding
+	Back       key.Binding
+	CtrlClick  key.Binding // display-only: mouse events bypass key bindings
 }
 
 var keys = keyMap{
@@ -91,10 +90,6 @@ var keys = keyMap{
 	FilterPrev: key.NewBinding(
 		key.WithKeys("F"),
 		key.WithHelp("F", "filter ←"),
-	),
-	FilterClear: key.NewBinding(
-		key.WithKeys("esc"),
-		key.WithHelp("esc", "clear filter / back"),
 	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),
