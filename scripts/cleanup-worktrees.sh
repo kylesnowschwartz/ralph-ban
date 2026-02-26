@@ -28,7 +28,7 @@ done
 # so we use `--git-common-dir` instead: it always points to the main .git dir.
 COMMON_GIT_DIR="$(git rev-parse --git-common-dir 2>/dev/null)" \
   || { echo "[cleanup-worktrees] ERROR: not inside a git repository" >&2; exit 1; }
-REPO_ROOT="$(dirname "$COMMON_GIT_DIR")"
+REPO_ROOT="$(cd "$(dirname "$COMMON_GIT_DIR")" && pwd)"
 WORKTREES_DIR="${REPO_ROOT}/.claude/worktrees"
 
 removed_worktrees=0
