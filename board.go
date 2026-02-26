@@ -46,8 +46,9 @@ type board struct {
 	depLinker    *depLinker
 	activityView activity
 
-	// Single-level undo for accidental moves.
-	lastMove *moveMsg
+	// Undo stack for moves, priority changes, edits, and deletes.
+	// Capped at maxUndoStack entries; oldest entry is dropped when full.
+	undo undoStack
 
 	// Search state: input holds the query; allItems caches the full per-column
 	// lists so we can restore them when search is cancelled.
@@ -196,7 +197,7 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, b.handleMove(msg)
 
 	case deleteMsg:
-		return b, persistDelete(b.store, msg.id)
+		return b, b.handleDelete(msg)
 
 	case priorityMsg:
 		return b, b.handlePriority(msg)
@@ -383,7 +384,14 @@ func (b *board) loadFromStore() tea.Cmd {
 // When search is active, the full item set is stashed in allItems and only
 // matching items are shown so the live filter stays consistent across polls.
 // When a filter is active, each column's items are narrowed to only matching cards.
+// The undo stack is cleared because external writes may have made recorded
+// operations stale — applying them after a refresh could corrupt state.
 func (b *board) applyRefresh(msg refreshMsg) {
+	// Undo entries recorded before this refresh may no longer reflect reality
+	// (another session or CLI could have modified the same cards). Clear the
+	// stack so the user can't undo against a snapshot that no longer exists.
+	b.undo.clear()
+
 	// Cache the full issue list and blocked IDs so filter steps can be rebuilt
 	// from all issues without losing the lock icon indicator between poll ticks.
 	b.allIssues = msg.issues
@@ -452,12 +460,17 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 // applyMove mutates column state and persists the status change.
 // Factored out so both handleMove and handleClose can reuse the column-mutation logic.
 func (b *board) applyMove(cd card, result *moveResult) tea.Cmd {
-	// Save for undo before mutating the card's status.
-	b.lastMove = &moveMsg{
-		card:   cd,
-		source: result.source,
-		target: result.target,
-	}
+	// Push a move undo entry before mutating the card's status.
+	// The card snapshot captured here retains its pre-move status so that
+	// undoLastMove can restore the correct status in the target column.
+	b.undo.push(undoEntry{
+		kind: undoMove,
+		move: &moveMsg{
+			card:   cd,
+			source: result.source,
+			target: result.target,
+		},
+	})
 
 	cd.issue.Status = result.newStatus
 
@@ -493,6 +506,14 @@ func (b *board) handlePriority(msg priorityMsg) tea.Cmd {
 		return nil // already at boundary
 	}
 
+	// Record old priority before mutating so the user can undo the change.
+	b.undo.push(undoEntry{
+		kind:           undoPriority,
+		priorityCardID: msg.card.issue.ID,
+		priorityCol:    b.focused,
+		oldPriority:    msg.card.issue.Priority,
+	})
+
 	msg.card.issue.Priority = newPriority
 
 	// Re-sort the focused column to reflect the new priority order
@@ -516,17 +537,35 @@ func (b *board) handlePriority(msg priorityMsg) tea.Cmd {
 	return persistUpdate(b.store, msg.card.issue)
 }
 
-// undoLastMove reverses the most recent card move.
+// undoLastMove pops the most recent entry from the undo stack and reverses it.
+// Each press of 'u' walks one step further back through the operation history.
 func (b *board) undoLastMove() tea.Cmd {
-	result := computeUndo(b.lastMove)
+	entry, ok := b.undo.pop()
+	if !ok {
+		return nil
+	}
+
+	switch entry.kind {
+	case undoMove:
+		return b.applyUndoMove(entry.move)
+	case undoPriority:
+		return b.applyUndoPriority(entry)
+	case undoEdit:
+		return b.applyUndoEdit(entry.issue)
+	case undoDelete:
+		return b.applyUndoDelete(entry.issue)
+	}
+	return nil
+}
+
+// applyUndoMove reverses a column move by moving the card back to its source column.
+func (b *board) applyUndoMove(lastMove *moveMsg) tea.Cmd {
+	result := computeUndoMove(lastMove)
 	if result == nil {
 		return nil
 	}
 
-	undo := b.lastMove
-	b.lastMove = nil
-
-	// Remove the card from where it landed (result.source = where it currently is)
+	// Remove the card from where it landed (result.source = current location)
 	items := b.cols[result.source].list.Items()
 	for i, item := range items {
 		if c, ok := item.(card); ok && c.issue.ID == result.cardID {
@@ -535,13 +574,13 @@ func (b *board) undoLastMove() tea.Cmd {
 		}
 	}
 
-	// Put it back in the original column (result.target = where it goes back to)
-	undo.card.issue.Status = result.newStatus
+	// Put it back in the original column (result.target = original location)
+	lastMove.card.issue.Status = result.newStatus
 	srcItems := b.cols[result.target].list.Items()
-	srcItems = append(srcItems, undo.card)
+	srcItems = append(srcItems, lastMove.card)
 	b.cols[result.target].SetItems(srcItems)
 
-	// Follow the card back
+	// Follow the card back to its original column
 	b.cols[b.focused].Blur()
 	b.focused = result.target
 	b.cols[b.focused].Focus()
@@ -550,6 +589,85 @@ func (b *board) undoLastMove() tea.Cmd {
 	b.resizeColumns()
 
 	return persistMove(b.store, result.cardID, result.target)
+}
+
+// applyUndoPriority restores a card's priority to its value before the last change.
+func (b *board) applyUndoPriority(entry undoEntry) tea.Cmd {
+	col := &b.cols[entry.priorityCol]
+	items := col.list.Items()
+
+	// Find the card and restore its old priority.
+	var targetIssue *beadslite.Issue
+	for _, item := range items {
+		if c, ok := item.(card); ok && c.issue.ID == entry.priorityCardID {
+			c.issue.Priority = entry.oldPriority
+			targetIssue = c.issue
+			break
+		}
+	}
+	if targetIssue == nil {
+		return nil // card no longer in this column (external change)
+	}
+
+	// Re-sort the column with the restored priority.
+	sort.Slice(items, func(a, bIdx int) bool {
+		ca := items[a].(card)
+		cb := items[bIdx].(card)
+		return ca.issue.Priority < cb.issue.Priority
+	})
+	col.SetItems(items)
+
+	// Re-select the card that was restored.
+	for i, item := range col.list.Items() {
+		if c, ok := item.(card); ok && c.issue.ID == entry.priorityCardID {
+			col.list.Select(i)
+			break
+		}
+	}
+
+	return persistUpdate(b.store, targetIssue)
+}
+
+// applyUndoEdit restores an issue to its state before the last edit.
+func (b *board) applyUndoEdit(oldIssue *beadslite.Issue) tea.Cmd {
+	col := statusToColumn[oldIssue.Status]
+	colItems := b.cols[col].list.Items()
+	for i, item := range colItems {
+		if c, ok := item.(card); ok && c.issue.ID == oldIssue.ID {
+			b.cols[col].list.SetItem(i, card{issue: oldIssue})
+			return persistUpdate(b.store, oldIssue)
+		}
+	}
+	return nil // card no longer present (external change)
+}
+
+// applyUndoDelete re-creates a card that was deleted by the user.
+func (b *board) applyUndoDelete(issue *beadslite.Issue) tea.Cmd {
+	col := statusToColumn[issue.Status]
+	items := b.cols[col].list.Items()
+	items = append(items, card{issue: issue})
+	b.cols[col].SetItems(items)
+	return persistCreate(b.store, issue)
+}
+
+// handleDelete snapshots the card before deletion so the operation can be undone.
+func (b *board) handleDelete(msg deleteMsg) tea.Cmd {
+	// Search all columns for the card so we can snapshot it.
+	for i := columnIndex(0); i < numColumns; i++ {
+		for _, item := range b.cols[i].list.Items() {
+			if c, ok := item.(card); ok && c.issue.ID == msg.id {
+				// Deep-copy the issue so the undo entry is independent of
+				// any subsequent pointer mutations.
+				snapshot := *c.issue
+				b.undo.push(undoEntry{
+					kind:  undoDelete,
+					issue: &snapshot,
+				})
+				break
+			}
+		}
+	}
+	return persistDelete(b.store, msg.id)
 }
 
 // handleSave processes a form submission (create or edit).
@@ -570,6 +688,12 @@ func (b *board) handleSave(msg saveMsg) tea.Cmd {
 	for i := columnIndex(0); i < numColumns; i++ {
 		for j, item := range b.cols[i].list.Items() {
 			if c, ok := item.(card); ok && c.issue.ID == msg.issue.ID {
+				// Snapshot the old state before overwriting so the edit can be undone.
+				oldIssue := *c.issue
+				b.undo.push(undoEntry{
+					kind:  undoEdit,
+					issue: &oldIssue,
+				})
 				// Update in place
 				b.cols[i].list.SetItem(j, card{issue: msg.issue})
 				return persistUpdate(b.store, msg.issue)
@@ -607,12 +731,15 @@ func (b *board) handleClose(msg closeMsg) tea.Cmd {
 
 	b.err = nil
 
-	// Update column state: remove from source, add to Done.
-	b.lastMove = &moveMsg{
-		card:   msg.card,
-		source: msg.source,
-		target: colDone,
-	}
+	// Push a move undo entry so the close can be reversed just like a regular move.
+	b.undo.push(undoEntry{
+		kind: undoMove,
+		move: &moveMsg{
+			card:   msg.card,
+			source: msg.source,
+			target: colDone,
+		},
+	})
 
 	msg.card.issue.Status = result.newStatus
 

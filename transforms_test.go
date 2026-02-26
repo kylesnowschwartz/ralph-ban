@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	beadslite "github.com/kylesnowschwartz/beads-lite"
@@ -60,19 +61,19 @@ func TestComputePriority_AtBoundaries(t *testing.T) {
 	}
 }
 
-func TestComputeUndo_NilWhenNoHistory(t *testing.T) {
-	if computeUndo(nil) != nil {
+func TestComputeUndoMove_NilWhenNoHistory(t *testing.T) {
+	if computeUndoMove(nil) != nil {
 		t.Error("expected nil when no lastMove")
 	}
 }
 
-func TestComputeUndo_ReversesSourceAndTarget(t *testing.T) {
+func TestComputeUndoMove_ReversesSourceAndTarget(t *testing.T) {
 	last := &moveMsg{
 		card:   card{issue: &beadslite.Issue{ID: "bl-undo", Status: beadslite.StatusDoing}},
 		source: colTodo,
 		target: colDoing,
 	}
-	result := computeUndo(last)
+	result := computeUndoMove(last)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -84,5 +85,78 @@ func TestComputeUndo_ReversesSourceAndTarget(t *testing.T) {
 	}
 	if result.newStatus != beadslite.StatusTodo {
 		t.Errorf("newStatus = %q, want %q", result.newStatus, beadslite.StatusTodo)
+	}
+}
+
+// --- undoStack ---
+
+func TestUndoStack_PushAndPop(t *testing.T) {
+	var s undoStack
+	s.push(undoEntry{kind: undoMove})
+	s.push(undoEntry{kind: undoPriority})
+
+	e, ok := s.pop()
+	if !ok {
+		t.Fatal("pop should return true with entries on the stack")
+	}
+	if e.kind != undoPriority {
+		t.Errorf("pop returned kind %d, want undoPriority (%d)", e.kind, undoPriority)
+	}
+
+	e, ok = s.pop()
+	if !ok {
+		t.Fatal("second pop should return true")
+	}
+	if e.kind != undoMove {
+		t.Errorf("pop returned kind %d, want undoMove (%d)", e.kind, undoMove)
+	}
+
+	_, ok = s.pop()
+	if ok {
+		t.Error("pop on empty stack should return false")
+	}
+}
+
+func TestUndoStack_EvictsOldestWhenFull(t *testing.T) {
+	var s undoStack
+	// Fill beyond the cap
+	for i := 0; i < maxUndoStack+3; i++ {
+		s.push(undoEntry{kind: undoEdit, priorityCardID: fmt.Sprintf("entry-%d", i)})
+	}
+
+	if len(s) != maxUndoStack {
+		t.Errorf("stack len = %d, want %d (cap)", len(s), maxUndoStack)
+	}
+
+	// Pop everything; the earliest entries should be the ones past index 2
+	// (the first 3 were evicted as we exceeded the cap).
+	entries := make([]undoEntry, 0, maxUndoStack)
+	for {
+		e, ok := s.pop()
+		if !ok {
+			break
+		}
+		entries = append(entries, e)
+	}
+
+	// Entries come out newest-first; the oldest remaining should be entry-3.
+	oldest := entries[len(entries)-1]
+	if oldest.priorityCardID != "entry-3" {
+		t.Errorf("oldest remaining entry = %q, want entry-3 (first 3 should be evicted)", oldest.priorityCardID)
+	}
+}
+
+func TestUndoStack_Clear(t *testing.T) {
+	var s undoStack
+	s.push(undoEntry{kind: undoMove})
+	s.push(undoEntry{kind: undoDelete})
+	s.clear()
+
+	if len(s) != 0 {
+		t.Errorf("stack len = %d after clear, want 0", len(s))
+	}
+	_, ok := s.pop()
+	if ok {
+		t.Error("pop after clear should return false")
 	}
 }

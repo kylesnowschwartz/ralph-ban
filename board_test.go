@@ -157,11 +157,14 @@ func TestUndoLastMove_ReversesMove(t *testing.T) {
 	b.cols[b.focused].Blur()
 	b.focused = colDoing
 	b.cols[colDoing].Focus()
-	b.lastMove = &moveMsg{
-		card:   card{issue: issue},
-		source: colTodo,
-		target: colDoing,
-	}
+	b.undo.push(undoEntry{
+		kind: undoMove,
+		move: &moveMsg{
+			card:   card{issue: issue},
+			source: colTodo,
+			target: colDoing,
+		},
+	})
 
 	cmd := b.undoLastMove()
 
@@ -186,20 +189,187 @@ func TestUndoLastMove_ReversesMove(t *testing.T) {
 		t.Errorf("focused = %d, want %d (colTodo)", b.focused, colTodo)
 	}
 
-	// lastMove should be consumed
-	if b.lastMove != nil {
-		t.Error("lastMove should be nil after undo")
+	// Stack should be empty after one undo
+	if len(b.undo) != 0 {
+		t.Errorf("undo stack len = %d after undo, want 0", len(b.undo))
 	}
 }
 
 func TestUndoLastMove_NilWhenNoHistory(t *testing.T) {
 	b := newTestBoard(t)
-	b.lastMove = nil
 
 	cmd := b.undoLastMove()
 
 	if cmd != nil {
 		t.Error("undoLastMove should return nil when no move to undo")
+	}
+}
+
+func TestUndoLastMove_MultiStep(t *testing.T) {
+	b := newTestBoard(t)
+
+	issueA := makeIssue("bl-a", "Card A", beadslite.StatusDoing)
+	issueB := makeIssue("bl-b", "Card B", beadslite.StatusReview)
+
+	b.cols[colDoing].SetItems([]list.Item{card{issue: issueA}})
+	b.cols[colReview].SetItems([]list.Item{card{issue: issueB}})
+
+	// Push two move entries: A went todo→doing, B went doing→review.
+	b.undo.push(undoEntry{
+		kind: undoMove,
+		move: &moveMsg{card: card{issue: issueA}, source: colTodo, target: colDoing},
+	})
+	b.undo.push(undoEntry{
+		kind: undoMove,
+		move: &moveMsg{card: card{issue: issueB}, source: colDoing, target: colReview},
+	})
+
+	b.cols[b.focused].Blur()
+	b.focused = colReview
+	b.cols[colReview].Focus()
+
+	// First undo: reverses B back to doing
+	cmd := b.undoLastMove()
+	if cmd == nil {
+		t.Fatal("first undo should return a command")
+	}
+	if len(b.cols[colReview].list.Items()) != 0 {
+		t.Errorf("review should be empty after first undo, got %d items", len(b.cols[colReview].list.Items()))
+	}
+	if len(b.cols[colDoing].list.Items()) != 2 {
+		t.Errorf("doing should have 2 items after first undo, got %d", len(b.cols[colDoing].list.Items()))
+	}
+
+	// Second undo: reverses A back to todo
+	cmd = b.undoLastMove()
+	if cmd == nil {
+		t.Fatal("second undo should return a command")
+	}
+	if len(b.cols[colTodo].list.Items()) != 1 {
+		t.Errorf("todo should have 1 item after second undo, got %d", len(b.cols[colTodo].list.Items()))
+	}
+
+	// Stack should be empty
+	if len(b.undo) != 0 {
+		t.Errorf("undo stack should be empty after all undos, got %d", len(b.undo))
+	}
+}
+
+func TestUndoLastMove_UndoPriorityChange(t *testing.T) {
+	b := newTestBoard(t)
+
+	issue := makeIssue("bl-pri", "Priority Card", beadslite.StatusTodo)
+	issue.Priority = 1 // already raised from 2
+
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+	b.cols[colTodo].SetItems([]list.Item{card{issue: issue}})
+
+	// Record that priority was 2 before the user raised it to 1.
+	b.undo.push(undoEntry{
+		kind:           undoPriority,
+		priorityCardID: issue.ID,
+		priorityCol:    colTodo,
+		oldPriority:    2,
+	})
+
+	cmd := b.undoLastMove()
+	if cmd == nil {
+		t.Fatal("undo priority change should return a persist command")
+	}
+
+	// The card's priority should be restored to 2.
+	items := b.cols[colTodo].list.Items()
+	if len(items) != 1 {
+		t.Fatalf("todo has %d items, want 1", len(items))
+	}
+	restored := items[0].(card)
+	if restored.issue.Priority != 2 {
+		t.Errorf("priority after undo = %d, want 2", restored.issue.Priority)
+	}
+}
+
+func TestUndoLastMove_UndoEdit(t *testing.T) {
+	b := newTestBoard(t)
+
+	originalIssue := makeIssue("bl-edit", "Original Title", beadslite.StatusTodo)
+	editedIssue := makeIssue("bl-edit", "Edited Title", beadslite.StatusTodo)
+
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+	// The column currently shows the edited version.
+	b.cols[colTodo].SetItems([]list.Item{card{issue: editedIssue}})
+
+	// Record the original state before the edit.
+	snapshot := *originalIssue
+	b.undo.push(undoEntry{
+		kind:  undoEdit,
+		issue: &snapshot,
+	})
+
+	cmd := b.undoLastMove()
+	if cmd == nil {
+		t.Fatal("undo edit should return a persist command")
+	}
+
+	// The column should now show the original title.
+	items := b.cols[colTodo].list.Items()
+	if len(items) != 1 {
+		t.Fatalf("todo has %d items, want 1", len(items))
+	}
+	restored := items[0].(card)
+	if restored.issue.Title != "Original Title" {
+		t.Errorf("title after undo = %q, want %q", restored.issue.Title, "Original Title")
+	}
+}
+
+func TestUndoLastMove_UndoDelete(t *testing.T) {
+	b := newTestBoard(t)
+
+	deletedIssue := makeIssue("bl-del", "Deleted Card", beadslite.StatusTodo)
+
+	// Column is empty (card was deleted).
+	b.cols[colTodo].SetItems([]list.Item{})
+
+	// Record the deleted card.
+	snapshot := *deletedIssue
+	b.undo.push(undoEntry{
+		kind:  undoDelete,
+		issue: &snapshot,
+	})
+
+	cmd := b.undoLastMove()
+	if cmd == nil {
+		t.Fatal("undo delete should return a persist command")
+	}
+
+	// The card should be restored to the todo column.
+	items := b.cols[colTodo].list.Items()
+	if len(items) != 1 {
+		t.Fatalf("todo has %d items after undo delete, want 1", len(items))
+	}
+	restored := items[0].(card)
+	if restored.issue.ID != "bl-del" {
+		t.Errorf("restored card ID = %q, want bl-del", restored.issue.ID)
+	}
+}
+
+func TestUndoStack_ClearedOnRefresh(t *testing.T) {
+	b := newTestBoard(t)
+
+	// Put something on the undo stack.
+	b.undo.push(undoEntry{kind: undoMove})
+	b.undo.push(undoEntry{kind: undoPriority})
+
+	if len(b.undo) != 2 {
+		t.Fatalf("undo stack len = %d, want 2 before refresh", len(b.undo))
+	}
+
+	// Simulate a refresh arriving.
+	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil})
+
+	if len(b.undo) != 0 {
+		t.Errorf("undo stack len = %d after refresh, want 0", len(b.undo))
 	}
 }
 
