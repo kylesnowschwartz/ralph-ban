@@ -11,9 +11,12 @@ import (
 )
 
 func main() {
-	// Subcommand routing: ralph-ban claude | ralph-ban board | ralph-ban [flags]
+	// Subcommand routing: ralph-ban init | ralph-ban claude | ralph-ban board | ralph-ban [flags]
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "init":
+			runInit(os.Args[2:])
+			return
 		case "claude":
 			runClaude(os.Args[2:])
 			return
