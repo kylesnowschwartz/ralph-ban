@@ -16,8 +16,16 @@ orchestrator gives you the card ID and the branch or commit to review.
 ## Workflow
 
 1. Read the card: `bl show <id>` for context on what was implemented
-2. Read the diff: `git log --oneline -5` and `git diff main..HEAD` (or
-   the branch the orchestrator specifies)
+
+2. Locate the changes using the branch the orchestrator provided:
+   - Check the branch exists: `git branch -a | grep <branch>`
+   - If missing, report back: "Branch <branch> not found. Cannot review."
+   - Check it out if needed: `git checkout <branch>`
+   - Read the diff: `git log main..<branch> --oneline` then
+     `git diff main..<branch>`
+   - Fallback: if the orchestrator says changes are already on main, use
+     specific commit hashes instead: `git diff <base-sha>..<tip-sha>`
+
 3. Run verification: `go vet ./... && go test ./... -count=1`
 4. Review the code against the checklist below
 5. Decide: approve or reject

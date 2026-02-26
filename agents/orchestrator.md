@@ -63,12 +63,29 @@ PHASE 3 - MONITOR: Stay interactive while workers run
   For any done workers, collect their results.
 
 PHASE 4 - REVIEW: Examine each worker's changes
+  When a worker completes, its Task result includes the worktree branch name
+  (auto-generated, e.g. "worktree/agent-a1b2c3d4"). You MUST pass this branch
+  to the reviewer — without it the reviewer can't find the diff.
+
+  Workers commit to their worktree branch and stop. They do NOT merge to main.
+  You (the orchestrator) merge to main ONLY after review approval in Phase 6.
+
   For each completed worker:
+    Extract the branch name from the Task result.
     Spawn a reviewer agent:
       Task tool (subagent_type: "reviewer", isolation: "worktree",
-        prompt: "Review card <id>. Worktree branch: <branch>")
+        prompt: "Review card <id> — <title>.
+                 Branch: <branch-name>
+                 Commit range: git log main..<branch-name>
+                 Check out the branch if needed: git checkout <branch-name>")
     Collect review results.
     bl update <id> --status review
+
+  Example reviewer prompt (fill in real values):
+    "Review card bl-abc1 — add login endpoint.
+     Branch: worktree/agent-a1b2c3d4
+     Commit range: git log main..worktree/agent-a1b2c3d4
+     Check out the branch if needed: git checkout worktree/agent-a1b2c3d4"
 
 PHASE 5 - HUMAN APPROVAL: Get explicit approval before merging
   Summarize all changes from workers.
