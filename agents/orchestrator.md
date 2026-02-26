@@ -104,7 +104,32 @@ PHASE 5 - MERGE: After review approval
   autonomous mode: Merge immediately after reviewer approval. DO NOT use AskUserQuestion or prompt the user for merge approval — the reviewer is the only quality gate. Report what you merged.
   batch mode:   Summarize changes and use AskUserQuestion: "Merge these changes to main?" You MUST get explicit human approval before merging in batch mode.
 
-  For each approved card, check for staleness before touching main:
+  For each approved card, run a dry-run conflict check before touching main:
+    1. git checkout main && git merge --no-commit --no-ff <branch>
+       This simulates the merge without committing.
+    2. git diff --name-only --diff-filter=U
+       If output: conflicts detected — list the conflicted files and decide:
+         Option A: Re-dispatch the worker with instructions to rebase onto main
+                   and resolve conflicts before moving to review again.
+                   bl update <id> --status doing
+                   Re-spawn the worker using the rejected-card block below,
+                   including the conflict details in the prompt so the worker
+                   knows exactly what to rebase and fix.
+         Option B: Reject the card and re-scope the work if the conflict is structural
+                   (e.g. the feature has been superseded or the approach is wrong).
+                   If re-scoping: bl update <id> --status doing, then re-spawn the
+                   worker using the rejected-card block below with a narrower prompt.
+                   If abandoning: bl close <id>.
+       If no output: merge is clean — continue to the staleness check.
+    3. git merge --abort
+       Always abort the dry-run, whether clean or conflicted. This leaves main untouched.
+
+  # The dry-run check makes the staleness check partially redundant — a clean dry-run
+  # means the merge will succeed regardless of how far main has advanced. Keeping both
+  # is belt-and-suspenders: the staleness check ensures a clean commit history (no
+  # unexpected merge commits) even when there are no conflicts.
+
+  For each approved card with a clean dry-run, check for staleness before touching main:
     1. git log --oneline <branch>..main
        If no output: branch is current, skip to step 4.
        If commits appear: main advanced while the worker ran — pull it into the branch first.
