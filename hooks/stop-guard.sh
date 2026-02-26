@@ -92,16 +92,7 @@ if [ -n "${CLAUDE_TEAM_NAME:-}" ]; then
   exit 0
 fi
 
-# --- Check if bl is available ---
-BL="${BL:-bl}"
-if ! command -v "$BL" &>/dev/null; then
-  exit 0
-fi
-
-# --- Check if beads-lite is initialized ---
-if ! db_exists; then
-  exit 0
-fi
+require_bl
 
 # --- Surface owned cards ---
 AGENT_NAME="${CLAUDE_AGENT_NAME:-claude}"
@@ -124,7 +115,7 @@ fi
 
 # --- Block on deep review queue ---
 review_count=$(count_review || echo "0")
-if [ "$review_count" -ge 3 ] 2>/dev/null; then
+if [ "$review_count" -ge "$REVIEW_QUEUE_THRESHOLD" ] 2>/dev/null; then
   state=$(read_board)
   review_cards=$(echo "$state" | jq -r '
     select(.status == "review")
@@ -176,10 +167,18 @@ stop_mode=$(read_stop_mode)
 # the user dispatches a batch, the orchestrator finishes it, then exits cleanly.
 # In autonomous mode: block on todo + doing until the whole board is empty.
 if [ "$stop_mode" = "autonomous" ]; then
-  should_block=$([ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ] && echo "yes" || echo "no")
+  if [ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ]; then
+    should_block="yes"
+  else
+    should_block="no"
+  fi
 else
   # batch (default)
-  should_block=$([ "$doing_count" -gt 0 ] && echo "yes" || echo "no")
+  if [ "$doing_count" -gt 0 ]; then
+    should_block="yes"
+  else
+    should_block="no"
+  fi
 fi
 
 if [ "$should_block" = "yes" ]; then

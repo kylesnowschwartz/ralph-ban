@@ -35,9 +35,21 @@ db_exists() {
   [ -f "${BL_ROOT:-.}/.beads-lite/beads.db" ]
 }
 
+# require_bl exits cleanly if bl is missing or the database doesn't exist.
+# Hooks should fail open when the tool chain isn't available.
+require_bl() {
+  if ! command -v "$BL" &>/dev/null; then
+    exit 0
+  fi
+  if ! db_exists; then
+    exit 0
+  fi
+}
+
 SNAPSHOT_FILE="${_GIT_ROOT}/.ralph-ban/.last-seen.json"
 BOUNCE_FILE="${_GIT_ROOT}/.ralph-ban/.bounce-counts.json"
 BL="${BL:-bl}"
+REVIEW_QUEUE_THRESHOLD="${REVIEW_QUEUE_THRESHOLD:-3}"
 
 # Per-invocation board cache using a temp file.
 # Variable assignments inside $() don't propagate (subshell), but the file
@@ -116,22 +128,14 @@ describe_changes() {
   local old_state="$1"
   local new_state="$2"
 
-  # Build maps of id -> status,title for old and new
-  local changes=""
-
-  # Parse new state into temp file
+  # Parse JSONL into TSV (id\tstatus\ttitle) with a single jq -s per side.
   local tmp_new tmp_old
   tmp_new=$(mktemp)
   tmp_old=$(mktemp)
-  echo "$new_state" | while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    echo "$line" | jq -r '[.id, .status, .title] | @tsv' 2>/dev/null
-  done >"$tmp_new"
+  trap 'rm -f "$tmp_new" "$tmp_old"' RETURN
 
-  echo "$old_state" | while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    echo "$line" | jq -r '[.id, .status, .title] | @tsv' 2>/dev/null
-  done >"$tmp_old"
+  echo "$new_state" | jq -s -r '.[] | [.id, .status, .title] | @tsv' 2>/dev/null >"$tmp_new"
+  echo "$old_state" | jq -s -r '.[] | [.id, .status, .title] | @tsv' 2>/dev/null >"$tmp_old"
 
   # Find status changes
   while IFS=$'\t' read -r new_id new_status new_title; do
@@ -154,8 +158,6 @@ describe_changes() {
       echo "Card '${old_title}' removed"
     fi
   done <"$tmp_old"
-
-  rm -f "$tmp_new" "$tmp_old"
 }
 
 # count_active returns the number of items in todo or doing columns.
@@ -184,41 +186,17 @@ count_review() {
   echo "$state" | jq -r 'select(.status == "review")' | jq -s 'length'
 }
 
-# --- Circuit breaker: review bounce tracking ---
-
-# record_bounce increments the bounce count for a card ID.
-# A "bounce" is a review→doing transition (rejection).
-record_bounce() {
-  local card_id="$1"
-  mkdir -p "$(dirname "$BOUNCE_FILE")"
-  if [ ! -f "$BOUNCE_FILE" ]; then
-    echo '{}' >"$BOUNCE_FILE"
-  fi
-  local current
-  current=$(jq -r --arg id "$card_id" '.[$id] // 0' <"$BOUNCE_FILE")
-  local new_count=$((current + 1))
-  jq --arg id "$card_id" --argjson count "$new_count" \
-    '.[$id] = $count' <"$BOUNCE_FILE" >"${BOUNCE_FILE}.tmp"
-  mv "${BOUNCE_FILE}.tmp" "$BOUNCE_FILE"
-  echo "$new_count"
-}
-
-# get_bounce_count returns the current bounce count for a card ID.
-get_bounce_count() {
-  local card_id="$1"
-  if [ ! -f "$BOUNCE_FILE" ]; then
-    echo "0"
-    return
-  fi
-  jq -r --arg id "$card_id" '.[$id] // 0' <"$BOUNCE_FILE"
-}
+# --- Legacy bounce tracking (used by cb_record_success cleanup path) ---
 
 # clear_bounce removes the bounce count for a card (called when card reaches done).
 clear_bounce() {
   local card_id="$1"
   if [ -f "$BOUNCE_FILE" ]; then
-    jq --arg id "$card_id" 'del(.[$id])' <"$BOUNCE_FILE" >"${BOUNCE_FILE}.tmp"
-    mv "${BOUNCE_FILE}.tmp" "$BOUNCE_FILE"
+    (
+      flock -x 200
+      jq --arg id "$card_id" 'del(.[$id])' <"$BOUNCE_FILE" >"${BOUNCE_FILE}.tmp"
+      mv "${BOUNCE_FILE}.tmp" "$BOUNCE_FILE"
+    ) 200>"${BOUNCE_FILE}.lock"
   fi
 }
 
@@ -237,7 +215,7 @@ clear_bounce() {
 
 CB_FILE="${_GIT_ROOT}/.ralph-ban/.circuit-breaker.json"
 BOUNCE_THRESHOLD="${BOUNCE_THRESHOLD:-3}"
-CB_COOLDOWN_SECONDS="${CB_COOLDOWN_SECONDS:-300}"  # 5 minutes default
+CB_COOLDOWN_SECONDS="${CB_COOLDOWN_SECONDS:-300}" # 5 minutes default
 
 # _cb_read_entry returns the JSON object for a card, or a default CLOSED entry.
 _cb_read_entry() {
@@ -260,20 +238,26 @@ _cb_write_entry() {
   local card_id="$1"
   local entry="$2"
   mkdir -p "$(dirname "$CB_FILE")"
-  if [ ! -f "$CB_FILE" ]; then
-    echo '{}' >"$CB_FILE"
-  fi
-  jq --arg id "$card_id" --argjson entry "$entry" \
-    '.[$id] = $entry' <"$CB_FILE" >"${CB_FILE}.tmp"
-  mv "${CB_FILE}.tmp" "$CB_FILE"
+  (
+    flock -x 200
+    if [ ! -f "$CB_FILE" ]; then
+      echo '{}' >"$CB_FILE"
+    fi
+    jq --arg id "$card_id" --argjson entry "$entry" \
+      '.[$id] = $entry' <"$CB_FILE" >"${CB_FILE}.tmp"
+    mv "${CB_FILE}.tmp" "$CB_FILE"
+  ) 200>"${CB_FILE}.lock"
 }
 
 # _cb_delete_entry removes a card's entry from the circuit breaker file.
 _cb_delete_entry() {
   local card_id="$1"
   if [ -f "$CB_FILE" ]; then
-    jq --arg id "$card_id" 'del(.[$id])' <"$CB_FILE" >"${CB_FILE}.tmp"
-    mv "${CB_FILE}.tmp" "$CB_FILE"
+    (
+      flock -x 200
+      jq --arg id "$card_id" 'del(.[$id])' <"$CB_FILE" >"${CB_FILE}.tmp"
+      mv "${CB_FILE}.tmp" "$CB_FILE"
+    ) 200>"${CB_FILE}.lock"
   fi
 }
 
@@ -321,31 +305,9 @@ cb_record_bounce() {
   bounce_count=$((bounce_count + 1))
 
   case "$state" in
-    CLOSED)
-      if [ "$bounce_count" -ge "$BOUNCE_THRESHOLD" ]; then
-        # Trip the breaker: CLOSED → OPEN
-        local new_entry
-        new_entry=$(jq -n \
-          --arg state "OPEN" \
-          --argjson bc "$bounce_count" \
-          --argjson oa "$now" \
-          --argjson lb "$now" \
-          '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
-        _cb_write_entry "$card_id" "$new_entry"
-        echo "OPEN $bounce_count"
-      else
-        # Still CLOSED, update count
-        local new_entry
-        new_entry=$(echo "$entry" | jq \
-          --argjson bc "$bounce_count" \
-          --argjson lb "$now" \
-          '.bounce_count = $bc | .last_bounce = $lb')
-        _cb_write_entry "$card_id" "$new_entry"
-        echo "CLOSED $bounce_count"
-      fi
-      ;;
-    OPEN)
-      # Another bounce while OPEN — restart the cool-down timer
+  CLOSED)
+    if [ "$bounce_count" -ge "$BOUNCE_THRESHOLD" ]; then
+      # Trip the breaker: CLOSED → OPEN
       local new_entry
       new_entry=$(jq -n \
         --arg state "OPEN" \
@@ -355,19 +317,41 @@ cb_record_bounce() {
         '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
       _cb_write_entry "$card_id" "$new_entry"
       echo "OPEN $bounce_count"
-      ;;
-    HALF_OPEN)
-      # Probe failed: HALF_OPEN → OPEN, restart cool-down
+    else
+      # Still CLOSED, update count
       local new_entry
-      new_entry=$(jq -n \
-        --arg state "OPEN" \
+      new_entry=$(echo "$entry" | jq \
         --argjson bc "$bounce_count" \
-        --argjson oa "$now" \
         --argjson lb "$now" \
-        '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
+        '.bounce_count = $bc | .last_bounce = $lb')
       _cb_write_entry "$card_id" "$new_entry"
-      echo "HALF_OPEN_REOPEN $bounce_count"
-      ;;
+      echo "CLOSED $bounce_count"
+    fi
+    ;;
+  OPEN)
+    # Another bounce while OPEN — restart the cool-down timer
+    local new_entry
+    new_entry=$(jq -n \
+      --arg state "OPEN" \
+      --argjson bc "$bounce_count" \
+      --argjson oa "$now" \
+      --argjson lb "$now" \
+      '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
+    _cb_write_entry "$card_id" "$new_entry"
+    echo "OPEN $bounce_count"
+    ;;
+  HALF_OPEN)
+    # Probe failed: HALF_OPEN → OPEN, restart cool-down
+    local new_entry
+    new_entry=$(jq -n \
+      --arg state "OPEN" \
+      --argjson bc "$bounce_count" \
+      --argjson oa "$now" \
+      --argjson lb "$now" \
+      '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
+    _cb_write_entry "$card_id" "$new_entry"
+    echo "HALF_OPEN_REOPEN $bounce_count"
+    ;;
   esac
 }
 
@@ -448,11 +432,6 @@ detect_stalled_cards() {
   ' "$PROGRESS_FILE" 2>/dev/null || true
 }
 
-# clear_progress_tracking removes the progress file.
-clear_progress_tracking() {
-  rm -f "$PROGRESS_FILE"
-}
-
 # read_stop_mode returns the configured stop mode: "batch" or "autonomous".
 # Reads from .ralph-ban/config.json; defaults to "batch" if missing or unreadable.
 # batch:      block only on doing cards — orchestrator stops once dispatched work completes.
@@ -475,17 +454,12 @@ read_stop_mode() {
 # Removing the file manually also clears it.
 
 RATE_LIMIT_PAUSE_FILE="${_GIT_ROOT}/.ralph-ban/.rate-limit-pause"
-RATE_LIMIT_PAUSE_SECONDS="${RATE_LIMIT_PAUSE_SECONDS:-1800}"  # 30 minutes default
+RATE_LIMIT_PAUSE_SECONDS="${RATE_LIMIT_PAUSE_SECONDS:-1800}" # 30 minutes default
 
 # write_rate_limit_pause records the current timestamp as the pause start.
 write_rate_limit_pause() {
   mkdir -p "$(dirname "$RATE_LIMIT_PAUSE_FILE")"
   date +%s >"$RATE_LIMIT_PAUSE_FILE"
-}
-
-# clear_rate_limit_pause removes the pause marker unconditionally.
-clear_rate_limit_pause() {
-  rm -f "$RATE_LIMIT_PAUSE_FILE"
 }
 
 # check_rate_limit_pause returns 0 (paused) or 1 (clear).
@@ -512,6 +486,6 @@ check_rate_limit_pause() {
   lift_at=$(date -r "$pause_start" "+%H:%M" 2>/dev/null || date -d "@$pause_start" "+%H:%M" 2>/dev/null || echo "unknown")
   # Output info string for callers that want to surface it to the agent/user.
   printf 'Rate limit pause active (detected at %s, clears in ~%dm). Skipping new dispatch.' \
-    "$lift_at" "$(( (remaining + 59) / 60 ))"
+    "$lift_at" "$(((remaining + 59) / 60))"
   return 0
 }

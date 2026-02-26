@@ -9,17 +9,7 @@ trap 'echo "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"ad
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
 source "$SCRIPT_DIR/lib/heartbeat.sh"
-
-# Check if bl is available
-BL="${BL:-bl}"
-if ! command -v "$BL" &>/dev/null; then
-  exit 0
-fi
-
-# Check if beads-lite is initialized
-if ! db_exists; then
-  exit 0
-fi
+require_bl
 
 # --- Rate limit detection ---
 # Scan the hook's input JSON for known rate limit signals before doing anything
@@ -39,7 +29,7 @@ if [ ! -t 0 ]; then
 fi
 
 rate_limit_warning=""
-if echo "$input_json" | grep -qi "rate.limit\|\"429\"\|too many requests\|overloaded_error" 2>/dev/null; then
+if echo "$input_json" | grep -qi "rate_limit\|\"error\".*\"429\"\|\"status\":.*429\|too many requests\|overloaded_error" 2>/dev/null; then
   write_rate_limit_pause
   rate_limit_warning="RATE LIMIT DETECTED: Claude API rate limit signal found in hook context. Pause marker written — new dispatches are suppressed for up to 30 minutes. Existing workers will continue. Check active doing cards and wait for the limit to lift before spawning new agents."
 fi
@@ -83,7 +73,7 @@ if [ -z "${CLAUDE_TEAM_NAME:-}" ]; then
 
   # --- Review queue depth ---
   review_count=$(count_review)
-  if [ "$review_count" -ge 3 ] 2>/dev/null; then
+  if [ "$review_count" -ge "$REVIEW_QUEUE_THRESHOLD" ] 2>/dev/null; then
     state=$(read_board)
     review_cards=$(echo "$state" | jq -r '
       select(.status == "review")

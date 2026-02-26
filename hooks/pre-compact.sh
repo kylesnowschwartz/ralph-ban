@@ -9,17 +9,7 @@ trap 'echo "{\"systemMessage\":\"Hook error in $(basename "$0"): $BASH_COMMAND f
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
-
-# Check if bl is available
-BL="${BL:-bl}"
-if ! command -v "$BL" &>/dev/null; then
-  exit 0
-fi
-
-# Check if beads-lite is initialized
-if ! db_exists; then
-  exit 0
-fi
+require_bl
 
 # Build a compact board summary for the compressed context.
 state=$(read_board)

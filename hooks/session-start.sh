@@ -7,17 +7,7 @@ trap 'echo "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
-
-# Check if bl is available
-BL="${BL:-bl}"
-if ! command -v "$BL" &>/dev/null; then
-  exit 0
-fi
-
-# Check if beads-lite is initialized
-if ! db_exists; then
-  exit 0
-fi
+require_bl
 
 # Clean up stale agent worktrees from previous sessions that crashed or were interrupted.
 # Runs silently before the board snapshot so accumulation doesn't require manual intervention.
