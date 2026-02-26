@@ -219,6 +219,164 @@ clear_bounce() {
   fi
 }
 
+# --- Circuit breaker state machine ---
+# States: CLOSED (normal) → OPEN (tripped, cool-down) → HALF_OPEN (probe) → CLOSED
+#
+# Schema: { "card-id": { "state": "CLOSED|OPEN|HALF_OPEN", "bounce_count": N,
+#                        "opened_at": unix_timestamp, "last_bounce": unix_timestamp } }
+#
+# Transitions:
+#   CLOSED  + bounce >= BOUNCE_THRESHOLD → OPEN (start cool-down)
+#   OPEN    + cool-down expired          → HALF_OPEN (allow one probe attempt)
+#   HALF_OPEN + bounce (failure)         → OPEN (restart cool-down)
+#   HALF_OPEN + done  (success)          → CLOSED (reset count)
+#   CLOSED  + done                       → CLOSED (clear entry)
+
+CB_FILE="${_GIT_ROOT}/.ralph-ban/.circuit-breaker.json"
+BOUNCE_THRESHOLD="${BOUNCE_THRESHOLD:-3}"
+CB_COOLDOWN_SECONDS="${CB_COOLDOWN_SECONDS:-300}"  # 5 minutes default
+
+# _cb_read_entry returns the JSON object for a card, or a default CLOSED entry.
+_cb_read_entry() {
+  local card_id="$1"
+  if [ ! -f "$CB_FILE" ]; then
+    echo '{"state":"CLOSED","bounce_count":0,"opened_at":0,"last_bounce":0}'
+    return
+  fi
+  local entry
+  entry=$(jq -r --arg id "$card_id" '.[$id] // empty' <"$CB_FILE" 2>/dev/null)
+  if [ -z "$entry" ]; then
+    echo '{"state":"CLOSED","bounce_count":0,"opened_at":0,"last_bounce":0}'
+  else
+    echo "$entry"
+  fi
+}
+
+# _cb_write_entry updates or creates the entry for a card in the circuit breaker file.
+_cb_write_entry() {
+  local card_id="$1"
+  local entry="$2"
+  mkdir -p "$(dirname "$CB_FILE")"
+  if [ ! -f "$CB_FILE" ]; then
+    echo '{}' >"$CB_FILE"
+  fi
+  jq --arg id "$card_id" --argjson entry "$entry" \
+    '.[$id] = $entry' <"$CB_FILE" >"${CB_FILE}.tmp"
+  mv "${CB_FILE}.tmp" "$CB_FILE"
+}
+
+# _cb_delete_entry removes a card's entry from the circuit breaker file.
+_cb_delete_entry() {
+  local card_id="$1"
+  if [ -f "$CB_FILE" ]; then
+    jq --arg id "$card_id" 'del(.[$id])' <"$CB_FILE" >"${CB_FILE}.tmp"
+    mv "${CB_FILE}.tmp" "$CB_FILE"
+  fi
+}
+
+# cb_get_state returns the current circuit breaker state for a card: CLOSED, OPEN, or HALF_OPEN.
+# If the file is missing or corrupt, returns CLOSED (fail open).
+cb_get_state() {
+  local card_id="$1"
+  local now
+  now=$(date +%s)
+  local entry
+  entry=$(_cb_read_entry "$card_id")
+  local state bounce_count opened_at
+  state=$(echo "$entry" | jq -r '.state // "CLOSED"')
+  opened_at=$(echo "$entry" | jq -r '.opened_at // 0')
+
+  # OPEN transitions to HALF_OPEN when cool-down expires. This check happens
+  # on every read so we don't need a scheduled job — it's lazy evaluation.
+  if [ "$state" = "OPEN" ] && [ "$now" -gt 0 ] && [ "$opened_at" -gt 0 ]; then
+    local elapsed
+    elapsed=$((now - opened_at))
+    if [ "$elapsed" -ge "$CB_COOLDOWN_SECONDS" ]; then
+      # Promote to HALF_OPEN and persist the transition.
+      local new_entry
+      new_entry=$(echo "$entry" | jq '.state = "HALF_OPEN"')
+      _cb_write_entry "$card_id" "$new_entry"
+      echo "HALF_OPEN"
+      return
+    fi
+  fi
+
+  echo "$state"
+}
+
+# cb_record_bounce records a review→doing bounce and advances the state machine.
+# Returns: "OPEN <bounce_count>" or "HALF_OPEN_REOPEN" or "CLOSED <bounce_count>"
+cb_record_bounce() {
+  local card_id="$1"
+  local now
+  now=$(date +%s)
+  local entry
+  entry=$(_cb_read_entry "$card_id")
+  local state bounce_count
+  state=$(cb_get_state "$card_id")
+  bounce_count=$(echo "$entry" | jq -r '.bounce_count // 0')
+  bounce_count=$((bounce_count + 1))
+
+  case "$state" in
+    CLOSED)
+      if [ "$bounce_count" -ge "$BOUNCE_THRESHOLD" ]; then
+        # Trip the breaker: CLOSED → OPEN
+        local new_entry
+        new_entry=$(jq -n \
+          --arg state "OPEN" \
+          --argjson bc "$bounce_count" \
+          --argjson oa "$now" \
+          --argjson lb "$now" \
+          '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
+        _cb_write_entry "$card_id" "$new_entry"
+        echo "OPEN $bounce_count"
+      else
+        # Still CLOSED, update count
+        local new_entry
+        new_entry=$(echo "$entry" | jq \
+          --argjson bc "$bounce_count" \
+          --argjson lb "$now" \
+          '.bounce_count = $bc | .last_bounce = $lb')
+        _cb_write_entry "$card_id" "$new_entry"
+        echo "CLOSED $bounce_count"
+      fi
+      ;;
+    OPEN)
+      # Another bounce while OPEN — restart the cool-down timer
+      local new_entry
+      new_entry=$(jq -n \
+        --arg state "OPEN" \
+        --argjson bc "$bounce_count" \
+        --argjson oa "$now" \
+        --argjson lb "$now" \
+        '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
+      _cb_write_entry "$card_id" "$new_entry"
+      echo "OPEN $bounce_count"
+      ;;
+    HALF_OPEN)
+      # Probe failed: HALF_OPEN → OPEN, restart cool-down
+      local new_entry
+      new_entry=$(jq -n \
+        --arg state "OPEN" \
+        --argjson bc "$bounce_count" \
+        --argjson oa "$now" \
+        --argjson lb "$now" \
+        '{"state":$state,"bounce_count":$bc,"opened_at":$oa,"last_bounce":$lb}')
+      _cb_write_entry "$card_id" "$new_entry"
+      echo "HALF_OPEN_REOPEN $bounce_count"
+      ;;
+  esac
+}
+
+# cb_record_success records a review→done success and resets the state machine.
+# Any state → CLOSED, entry deleted.
+cb_record_success() {
+  local card_id="$1"
+  _cb_delete_entry "$card_id"
+  # Also clear the legacy bounce count file for the same card.
+  clear_bounce "$card_id"
+}
+
 # --- Stall detection for in-progress cards ---
 
 STALL_THRESHOLD="${STALL_THRESHOLD:-5}"

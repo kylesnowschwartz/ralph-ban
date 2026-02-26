@@ -64,8 +64,13 @@ Each card needs a reviewer in an isolated worktree. Approved cards get merged an
 fi
 
 # --- Circuit breaker: detect review bounces ---
-# When a card moves review→doing, that's a rejection. Track it.
-# After 3 bounces, escalate to human instead of re-dispatching.
+# Uses a CLOSED/OPEN/HALF_OPEN state machine so cards that bounced early in a
+# long session can recover instead of staying permanently flagged.
+#
+#   CLOSED    — normal operation; counting bounces
+#   OPEN      — tripped; escalate to human; cool-down timer running
+#   HALF_OPEN — cool-down expired; probe state: one more attempt allowed
+#               failure → OPEN (restart cool-down), success → CLOSED (reset)
 breaker_warning=""
 if [ -n "$changes" ]; then
   # Parse changes for review→doing transitions.
@@ -75,20 +80,44 @@ if [ -n "$changes" ]; then
     if echo "$line" | grep -q "moved from review to doing" 2>/dev/null; then
       card_id=$(echo "$line" | grep -o 'bl-[a-z0-9]*')
       if [ -n "$card_id" ]; then
-        bounce_count=$(record_bounce "$card_id")
-        if [ "$bounce_count" -ge 3 ]; then
-          breaker_warning="CIRCUIT BREAKER: Card ${card_id} has bounced between review and doing ${bounce_count} times. Stop auto-dispatching this card. Ask the user for direction — the task may need rethinking, splitting, or manual intervention."
-        fi
+        result=$(cb_record_bounce "$card_id")
+        result_state=$(echo "$result" | cut -d' ' -f1)
+        result_count=$(echo "$result" | cut -d' ' -f2)
+        case "$result_state" in
+          OPEN)
+            breaker_warning="CIRCUIT BREAKER OPEN: Card ${card_id} has bounced ${result_count} times. Stop auto-dispatching. Ask the user for direction — the task may need rethinking, splitting, or manual intervention."
+            ;;
+          HALF_OPEN_REOPEN)
+            breaker_warning="CIRCUIT BREAKER RE-OPENED: Card ${card_id} failed its probe attempt (${result_count} total bounces). Cool-down restarted. Ask the user for direction before retrying."
+            ;;
+          # CLOSED: still within normal threshold — no warning needed
+        esac
       fi
     fi
-    # Clear bounce counts for cards that reach done
-    if echo "$line" | grep -q "moved from review to done" 2>/dev/null; then
+    # A card reaching done resets the circuit breaker (success path)
+    if echo "$line" | grep -q "moved from review to done\|moved from .* to done" 2>/dev/null; then
       card_id=$(echo "$line" | grep -o 'bl-[a-z0-9]*')
       if [ -n "$card_id" ]; then
-        clear_bounce "$card_id"
+        cb_record_success "$card_id"
       fi
     fi
   done <<<"$changes"
+fi
+
+# Also check for any cards currently in HALF_OPEN state (cool-down expired).
+# Emit a nudge so the orchestrator knows a probe attempt is allowed.
+half_open_nudge=""
+if [ -f "${_GIT_ROOT}/.ralph-ban/.circuit-breaker.json" ]; then
+  while IFS= read -r card_id; do
+    [ -z "$card_id" ] && continue
+    current_state=$(cb_get_state "$card_id")
+    if [ "$current_state" = "HALF_OPEN" ]; then
+      count=$(jq -r --arg id "$card_id" '.[$id].bounce_count // 0' \
+        <"${_GIT_ROOT}/.ralph-ban/.circuit-breaker.json" 2>/dev/null || echo "?")
+      half_open_nudge="${half_open_nudge}CIRCUIT BREAKER HALF-OPEN: Card ${card_id} had ${count} bounces but cool-down has expired. One probe attempt allowed — monitor closely. Success resets the breaker; failure reopens it.
+"
+    fi
+  done < <(jq -r 'keys[]' <"${_GIT_ROOT}/.ralph-ban/.circuit-breaker.json" 2>/dev/null || true)
 fi
 
 # --- Stall detection: track doing card progress ---
@@ -100,6 +129,9 @@ stall_warnings=$(detect_stalled_cards)
 parts=()
 if [ -n "$breaker_warning" ]; then
   parts+=("$breaker_warning")
+fi
+if [ -n "$half_open_nudge" ]; then
+  parts+=("$half_open_nudge")
 fi
 if [ -n "$changes" ]; then
   parts+=("Board changes since last prompt:")
