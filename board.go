@@ -624,16 +624,68 @@ func (b *board) openEditForm() {
 }
 
 // openDetail switches to detail mode showing the selected card.
+// Dependencies are resolved here so the detail overlay stays a pure renderer.
 func (b *board) openDetail() {
 	cd, ok := b.cols[b.focused].SelectedCard()
 	if !ok {
 		return
 	}
-	d := newDetail(cd.issue, b.focused)
+
+	blockedBy := b.resolveBlockedBy(cd.issue.ID)
+	blocks := b.resolveBlocks(cd.issue.ID)
+
+	d := newDetail(cd.issue, b.focused, blockedBy, blocks)
 	d.width = b.termWidth
 	d.height = b.termHeight
 	b.detail = &d
 	b.view = viewDetail
+}
+
+// resolveBlockedBy returns the issues that block the given card.
+// GetDependencies returns rows where issue_id = id, meaning id depends on those issues.
+// Only DepBlocks entries are shown; DepParent (epic links) are filtered out.
+func (b *board) resolveBlockedBy(id string) []depEntry {
+	deps, err := b.store.GetDependencies(id)
+	if err != nil {
+		return nil
+	}
+	var entries []depEntry
+	for _, dep := range deps {
+		if dep.Type != beadslite.DepBlocks {
+			continue
+		}
+		blocker, err := b.store.GetIssue(dep.DependsOnID)
+		if err != nil {
+			// Dangling ref — skip rather than surface a store error in the UI.
+			continue
+		}
+		entries = append(entries, depEntry{id: blocker.ID, title: blocker.Title})
+	}
+	return entries
+}
+
+// resolveBlocks returns the issues that are waiting on the given card.
+// GetAllDependencies gives us all deps keyed by dependent issue_id; we scan
+// for rows where DependsOnID == id to find the reverse relationship.
+func (b *board) resolveBlocks(id string) []depEntry {
+	allDeps, err := b.store.GetAllDependencies()
+	if err != nil {
+		return nil
+	}
+	var entries []depEntry
+	for dependentID, deps := range allDeps {
+		for _, dep := range deps {
+			if dep.Type != beadslite.DepBlocks || dep.DependsOnID != id {
+				continue
+			}
+			dependent, err := b.store.GetIssue(dependentID)
+			if err != nil {
+				continue
+			}
+			entries = append(entries, depEntry{id: dependent.ID, title: dependent.Title})
+		}
+	}
+	return entries
 }
 
 // updateDetail routes messages to the detail overlay.
