@@ -28,13 +28,16 @@ The User has full TTY access to communicate with you when collaboration is neede
    If you are on main, STOP immediately and report back to the orchestrator:
    "Worktree isolation failed — on main instead of a worktree branch."
    Do NOT proceed with implementation on main.
-3. Read the card: `bl show <id>` for full context.
-4. Understand the codebase -- read relevant files before writing code.
-5. Implement the change.
-6. Verify: `go vet ./... && go test ./... -count=1`.
-7. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
-8. Move to review: `bl update <id> --status review`.
-9. Report result back to orchestrator. Include in your result:
+3. Worktree build setup: Worktrees lack `go.work` (it's local-only, not in git).
+   All Go commands must use `GOWORK=off` to build against the published beads-lite:
+   `GOWORK=off go build ./...`, `GOWORK=off go vet ./...`, `GOWORK=off go test ./... -count=1`.
+4. Read the card: `bl show <id>` for full context.
+5. Understand the codebase -- read relevant files before writing code.
+6. Implement the change.
+7. Verify: `GOWORK=off go vet ./... && GOWORK=off go test ./... -count=1`.
+8. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
+9. Move to review: `bl update <id> --status review`.
+10. Report result back to orchestrator. Include in your result:
    - What changed and why
    - The worktree branch name (`git branch --show-current`)
    The orchestrator needs the branch name to spawn the reviewer correctly.
@@ -54,7 +57,7 @@ The User has full TTY access to communicate with you when collaboration is neede
 
 <project_context>
 - Go TUI kanban board using bubbletea, backed by beads-lite SQLite
-- go.work workspace links `../beads-lite` for local development
+- go.work links local `../beads-lite` in main repo; worktrees use GOWORK=off (published beads-lite)
 - Architecture: board.go (root model), column.go, card.go, form.go,
   store.go, keys.go, messages.go, transforms.go
 - 5 columns: Backlog, Todo, Doing, Review, Done
