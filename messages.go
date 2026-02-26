@@ -35,3 +35,11 @@ type errMsg struct {
 type refreshMsg struct {
 	issues []*beadslite.Issue
 }
+
+// closeMsg carries a card closure request from the resolution picker to the board.
+// The resolution is chosen by the user before the move to Done is finalized.
+type closeMsg struct {
+	card       card
+	source     columnIndex
+	resolution beadslite.Resolution
+}

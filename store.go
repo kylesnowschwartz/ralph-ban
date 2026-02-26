@@ -88,6 +88,17 @@ func persistUpdate(store *beadslite.Store, issue *beadslite.Issue) tea.Cmd {
 	}
 }
 
+// persistClose closes an issue in the database with the given resolution.
+// This calls CloseIssue which sets status=done, clears assigned_to, and sets closed_at.
+func persistClose(store *beadslite.Store, id string, resolution beadslite.Resolution) tea.Cmd {
+	return func() tea.Msg {
+		if err := store.CloseIssue(id, resolution); err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
 // tickRefresh starts the polling loop that reloads from SQLite every refreshInterval.
 func tickRefresh(store *beadslite.Store) tea.Cmd {
 	return tea.Tick(refreshInterval, func(time.Time) tea.Msg {

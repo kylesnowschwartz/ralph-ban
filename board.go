@@ -19,10 +19,11 @@ import (
 type boardView int
 
 const (
-	viewBoard  boardView = iota // default: show columns
-	viewForm                    // create/edit form overlay
-	viewDetail                  // card detail overlay
-	viewSearch                  // cross-column search mode
+	viewBoard      boardView = iota // default: show columns
+	viewForm                        // create/edit form overlay
+	viewDetail                      // card detail overlay
+	viewSearch                      // cross-column search mode
+	viewResolution                  // resolution picker before closing a card
 )
 
 // board is the root tea.Model for the kanban TUI.
@@ -35,10 +36,11 @@ type board struct {
 	quitting bool
 	err      error
 
-	// Overlay state: view controls routing; form/detail hold overlay data.
-	view   boardView
-	form   *form
-	detail *detail
+	// Overlay state: view controls routing; form/detail/resolution hold overlay data.
+	view       boardView
+	form       *form
+	detail     *detail
+	resolution *resolutionPicker
 
 	// Single-level undo for accidental moves.
 	lastMove *moveMsg
@@ -115,6 +117,10 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.detail.width = msg.Width
 			b.detail.height = msg.Height
 		}
+		if b.resolution != nil {
+			b.resolution.width = msg.Width
+			b.resolution.height = msg.Height
+		}
 		b.updatePan()
 		b.resizeColumns()
 		return b, nil
@@ -147,6 +153,8 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.updateForm(msg)
 	case viewSearch:
 		return b.updateSearch(msg)
+	case viewResolution:
+		return b.updateResolution(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -162,6 +170,9 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case saveMsg:
 		return b, b.handleSave(msg)
+
+	case closeMsg:
+		return b, b.handleClose(msg)
 
 	case tea.MouseMsg:
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
@@ -247,6 +258,10 @@ func (b *board) View() string {
 		return b.detail.View()
 	case viewForm:
 		return b.form.View()
+	case viewResolution:
+		if b.resolution != nil {
+			return b.resolution.View()
+		}
 	}
 
 	// Build visible columns based on panning
@@ -322,9 +337,22 @@ func (b *board) applyRefresh(issues []*beadslite.Issue) {
 // and persists the status change. Saves state for single-level undo.
 // If the target column has a WIP limit that would be exceeded, the move is
 // blocked and an error is shown in the status bar instead.
+// Moving a card into Done opens the resolution picker instead of persisting
+// immediately, so that ClosedAt, resolution, and AssignedTo clearing are set.
 func (b *board) handleMove(msg moveMsg) tea.Cmd {
 	result := computeMove(msg.card, msg.source, msg.target)
 	if result == nil {
+		return nil
+	}
+
+	// Intercept moves into Done: open resolution picker instead.
+	// The picker will emit a closeMsg when the user confirms.
+	if result.target == colDone {
+		picker := newResolutionPicker(msg.card, msg.source)
+		picker.width = b.termWidth
+		picker.height = b.termHeight
+		b.resolution = &picker
+		b.view = viewResolution
 		return nil
 	}
 
@@ -343,14 +371,20 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 	// Clear any prior WIP error now that the move is proceeding.
 	b.err = nil
 
+	return b.applyMove(msg.card, result)
+}
+
+// applyMove mutates column state and persists the status change.
+// Factored out so both handleMove and handleClose can reuse the column-mutation logic.
+func (b *board) applyMove(cd card, result *moveResult) tea.Cmd {
 	// Save for undo before mutating the card's status.
 	b.lastMove = &moveMsg{
-		card:   msg.card,
-		source: msg.source,
-		target: msg.target,
+		card:   cd,
+		source: result.source,
+		target: result.target,
 	}
 
-	msg.card.issue.Status = result.newStatus
+	cd.issue.Status = result.newStatus
 
 	// Remove from source column (atomic: both remove and add happen here)
 	srcItems := b.cols[result.source].list.Items()
@@ -363,7 +397,7 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 
 	// Add to target column
 	items := b.cols[result.target].list.Items()
-	items = append(items, msg.card)
+	items = append(items, cd)
 	b.cols[result.target].SetItems(items)
 
 	// Follow the card: shift focus to the target column and select it
@@ -474,6 +508,83 @@ func (b *board) handleSave(msg saveMsg) tea.Cmd {
 	items = append(items, card{issue: msg.issue})
 	b.cols[col].SetItems(items)
 	return persistCreate(b.store, msg.issue)
+}
+
+// handleClose finalizes a card move into Done using CloseIssue so that
+// resolution, ClosedAt, and AssignedTo are all set correctly.
+func (b *board) handleClose(msg closeMsg) tea.Cmd {
+	result := computeMove(msg.card, msg.source, colDone)
+	if result == nil {
+		return nil
+	}
+
+	// Enforce WIP limit on Done column.
+	if limit := b.wip.wipLimit(colDone); limit > 0 {
+		current := len(b.cols[colDone].list.Items())
+		if current >= limit {
+			b.err = fmt.Errorf(
+				"WIP limit reached: %s is at capacity (%d/%d)",
+				columnTitles[colDone], current, limit,
+			)
+			return nil
+		}
+	}
+
+	b.err = nil
+
+	// Update column state: remove from source, add to Done.
+	b.lastMove = &moveMsg{
+		card:   msg.card,
+		source: msg.source,
+		target: colDone,
+	}
+
+	msg.card.issue.Status = result.newStatus
+
+	srcItems := b.cols[result.source].list.Items()
+	for i, item := range srcItems {
+		if c, ok := item.(card); ok && c.issue.ID == result.cardID {
+			b.cols[result.source].list.RemoveItem(i)
+			break
+		}
+	}
+
+	items := b.cols[colDone].list.Items()
+	items = append(items, msg.card)
+	b.cols[colDone].SetItems(items)
+
+	b.cols[b.focused].Blur()
+	b.focused = colDone
+	b.cols[b.focused].Focus()
+	b.cols[colDone].list.Select(len(items) - 1)
+	b.updatePan()
+	b.resizeColumns()
+
+	return persistClose(b.store, result.cardID, msg.resolution)
+}
+
+// updateResolution routes messages to the resolution picker overlay.
+// Esc cancels and restores the board view. Enter (emitted as closeMsg) finalizes.
+func (b *board) updateResolution(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if key.Matches(msg, keys.Back) {
+			b.view = viewBoard
+			b.resolution = nil
+			return b, nil
+		}
+	case closeMsg:
+		b.view = viewBoard
+		b.resolution = nil
+		return b, b.handleClose(msg)
+	}
+
+	if b.resolution != nil {
+		r, cmd := b.resolution.Update(msg)
+		b.resolution = &r
+		return b, cmd
+	}
+	return b, nil
 }
 
 // moveFocus shifts focus by delta columns (-1 or +1).
