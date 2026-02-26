@@ -15,15 +15,15 @@ The User has full TTY access to communicate with you when collaboration is neede
 
 <board_tools>
 - bl show <id>                   # Read card details
-- bl unclaim <id>                # Release orchestrator's claim
 - bl claim <id> --agent worker   # Take ownership (hooks check this name)
+- bl update <id> --status doing  # Move to doing when starting
 - bl update <id> --status review # Move to review when done
 </board_tools>
 
 <execution_protocol>
-1. Take ownership: `bl unclaim <id>` then `bl claim <id> --agent worker`.
-   The orchestrator pre-claims cards. You must re-claim so TeammateIdle and
-   TaskCompleted hooks can verify YOUR work, not another agent's.
+1. Take ownership: `bl claim <id> --agent worker` then `bl update <id> --status doing`.
+   You own the full card lifecycle. TeammateIdle and TaskCompleted hooks check
+   that cards are assigned to "worker" — this claim makes that work.
 2. Read the card: `bl show <id>` for full context.
 3. Understand the codebase -- read relevant files before writing code.
 4. Implement the change.

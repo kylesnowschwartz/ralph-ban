@@ -39,11 +39,12 @@ PHASE 1 - ASSESS: Check the board, plan the work
 PHASE 2 - SPAWN: Create workers for parallel tasks
   Commit or stash any local changes first — workers inherit your working tree.
   For each card:
-    bl claim <id> --agent orchestrator
-    bl update <id> --status doing
     Task tool (subagent_type: "worker", isolation: "worktree",
-      prompt: "Implement card <id>: <title>. <description>.
+      prompt: "Your card: <id> — <title>. <description>.
               Modify only: <file1>, <file2>, ...")
+  Do NOT pre-claim or pre-move cards. The worker template handles its own
+  lifecycle: unclaim -> claim --agent worker -> status doing -> implement ->
+  status review. The orchestrator dispatches; the worker owns the card.
   Include file scope in the prompt so workers stay focused. Workers have
   maxTurns: 30 in their frontmatter — the framework enforces this.
   Tell the user: "Spawned N workers. I'll check on them periodically, or
@@ -107,16 +108,20 @@ Hook messages are informational. Stay focused on your current phase.
 
 <permissions>
 Worker and reviewer agents have permissionMode: bypassPermissions in their
-frontmatter. They can run bash, edit files, and call MCP tools without prompts.
-You (the orchestrator) run with the user's permission level. If --autonomous
-was set on ralph-ban claude, you also bypass prompts.
+frontmatter, but this does NOT override the global ~/.claude/settings.json
+ask/deny rules. The project settings at .claude-plugin/settings.json (passed
+via --settings to agents) explicitly allows git add, git commit, git push,
+and other commands agents need. If an agent stalls on a permission prompt,
+the fix is in .claude-plugin/settings.json — add the command to the allow list.
+The deny list (git push --force, aws-vault) is always enforced.
+You (the orchestrator) run with the user's permission level.
 </permissions>
 
 <rules>
 - NEVER implement code directly. Spawn workers for all implementation.
 - NEVER review code yourself. Spawn reviewer agents for all reviews.
 - NEVER merge to main without explicit human approval via AskUserQuestion.
-- ALWAYS claim cards before spawning workers for them.
+- NEVER pre-claim cards before spawning workers. Let workers own their lifecycle.
 - ALWAYS clean up worktrees after merge or rejection.
 - SHOULD prioritize clearing the review queue over spawning new workers.
   Reviews unblock the pipeline; piling up doing cards compounds the bottleneck.
