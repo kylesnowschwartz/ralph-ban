@@ -462,3 +462,53 @@ read_stop_mode() {
     echo "batch"
   fi
 }
+
+# --- Rate limit pause ---
+# When a worker hits Claude's 5-hour rate limit the board-sync hook writes a
+# pause marker. The orchestrator reads it before dispatching new work, so it
+# won't spawn agents that will immediately hit the same wall.
+#
+# The pause auto-clears after RATE_LIMIT_PAUSE_SECONDS (default 30 minutes).
+# Removing the file manually also clears it.
+
+RATE_LIMIT_PAUSE_FILE="${_GIT_ROOT}/.ralph-ban/.rate-limit-pause"
+RATE_LIMIT_PAUSE_SECONDS="${RATE_LIMIT_PAUSE_SECONDS:-1800}"  # 30 minutes default
+
+# write_rate_limit_pause records the current timestamp as the pause start.
+write_rate_limit_pause() {
+  mkdir -p "$(dirname "$RATE_LIMIT_PAUSE_FILE")"
+  date +%s >"$RATE_LIMIT_PAUSE_FILE"
+}
+
+# clear_rate_limit_pause removes the pause marker unconditionally.
+clear_rate_limit_pause() {
+  rm -f "$RATE_LIMIT_PAUSE_FILE"
+}
+
+# check_rate_limit_pause returns 0 (paused) or 1 (clear).
+# Auto-expires the marker after RATE_LIMIT_PAUSE_SECONDS.
+# Outputs a human-readable status string when paused.
+check_rate_limit_pause() {
+  if [ ! -f "$RATE_LIMIT_PAUSE_FILE" ]; then
+    return 1
+  fi
+
+  local pause_start now elapsed
+  pause_start=$(cat "$RATE_LIMIT_PAUSE_FILE" 2>/dev/null || echo "0")
+  now=$(date +%s)
+  elapsed=$((now - pause_start))
+
+  if [ "$elapsed" -ge "$RATE_LIMIT_PAUSE_SECONDS" ]; then
+    # Limit has likely lifted — remove stale marker.
+    rm -f "$RATE_LIMIT_PAUSE_FILE"
+    return 1
+  fi
+
+  local remaining lift_at
+  remaining=$((RATE_LIMIT_PAUSE_SECONDS - elapsed))
+  lift_at=$(date -r "$pause_start" "+%H:%M" 2>/dev/null || date -d "@$pause_start" "+%H:%M" 2>/dev/null || echo "unknown")
+  # Output info string for callers that want to surface it to the agent/user.
+  printf 'Rate limit pause active (detected at %s, clears in ~%dm). Skipping new dispatch.' \
+    "$lift_at" "$(( (remaining + 59) / 60 ))"
+  return 0
+}

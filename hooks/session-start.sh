@@ -52,6 +52,14 @@ total=$(echo "$ready" | wc -l | tr -d ' ')
 preamble=$(framework_preamble)
 board_summary="Board has ${total} ready items. Highest priority: '${title}' (${id}, ${status})."
 
+# Append rate limit pause notice if active (main session only — teammates don't dispatch).
+if [ -z "${CLAUDE_TEAM_NAME:-}" ]; then
+  pause_info=$(check_rate_limit_pause 2>/dev/null || true)
+  if [ -n "$pause_info" ]; then
+    board_summary="${board_summary} ${pause_info}"
+  fi
+fi
+
 if [ -z "${CLAUDE_TEAM_NAME:-}" ]; then
   # Main session: preamble (includes orchestrator role) + board summary
   emit_context "${preamble}

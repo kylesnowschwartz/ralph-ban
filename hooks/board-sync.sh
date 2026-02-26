@@ -21,6 +21,29 @@ if ! db_exists; then
   exit 0
 fi
 
+# --- Rate limit detection ---
+# Scan the hook's input JSON for known rate limit signals before doing anything
+# else. Claude Code passes the full context as stdin JSON; both the transcript
+# and top-level text fields may contain the signal.
+#
+# Patterns matched (case-insensitive):
+#   "rate_limit" or "rate limit" — Claude SDK error codes and prose
+#   "429"                        — HTTP status code
+#   "too many requests"          — HTTP/API status text
+#   "overloaded"                 — Anthropic overload responses
+# Workers that crash on a rate limit often set stop_reason="error" but the
+# message content carries the clearest signal, so we scan the raw JSON.
+input_json=""
+if [ ! -t 0 ]; then
+  input_json=$(cat 2>/dev/null || true)
+fi
+
+rate_limit_warning=""
+if echo "$input_json" | grep -qi "rate.limit\|\"429\"\|too many requests\|overloaded_error" 2>/dev/null; then
+  write_rate_limit_pause
+  rate_limit_warning="RATE LIMIT DETECTED: Claude API rate limit signal found in hook context. Pause marker written — new dispatches are suppressed for up to 30 minutes. Existing workers will continue. Check active doing cards and wait for the limit to lift before spawning new agents."
+fi
+
 # Diff against last snapshot
 changes=""
 if diff_output=$(diff_board); then
@@ -33,20 +56,28 @@ fi
 # Board state and circuit breaker context still flows to everyone.
 dispatch_nudge=""
 review_nudge=""
+pause_notice=""
 if [ -z "${CLAUDE_TEAM_NAME:-}" ]; then
-  # bl ready --unclaimed respects dependencies and only returns unblocked, unclaimed items.
-  unclaimed_todo=$("$BL" ready --unclaimed --json 2>/dev/null | jq -r '
-    select(.status == "todo")
-    | "\(.id): \(.title)"
-  ' 2>/dev/null || true)
+  # Check for active rate limit pause before suggesting new dispatches.
+  # check_rate_limit_pause exits 0 when paused (outputs info string), 1 when clear.
+  if pause_notice=$(check_rate_limit_pause 2>/dev/null); then
+    # Paused — skip dispatch nudge, surface pause_notice in output instead.
+    true
+  else
+    # bl ready --unclaimed respects dependencies and only returns unblocked, unclaimed items.
+    unclaimed_todo=$("$BL" ready --unclaimed --json 2>/dev/null | jq -r '
+      select(.status == "todo")
+      | "\(.id): \(.title)"
+    ' 2>/dev/null || true)
 
-  if [ -n "$unclaimed_todo" ]; then
-    count=$(echo "$unclaimed_todo" | wc -l | tr -d ' ')
-    first=$(echo "$unclaimed_todo" | head -1)
-    if [ "$count" -eq 1 ]; then
-      dispatch_nudge="1 unclaimed todo card ready for work: ${first}. Consider delegating to a worker agent in an isolated worktree."
-    else
-      dispatch_nudge="${count} unclaimed todo cards. Highest priority: ${first}. Consider delegating to worker agents in isolated worktrees."
+    if [ -n "$unclaimed_todo" ]; then
+      count=$(echo "$unclaimed_todo" | wc -l | tr -d ' ')
+      first=$(echo "$unclaimed_todo" | head -1)
+      if [ "$count" -eq 1 ]; then
+        dispatch_nudge="1 unclaimed todo card ready for work: ${first}. Consider delegating to a worker agent in an isolated worktree."
+      else
+        dispatch_nudge="${count} unclaimed todo cards. Highest priority: ${first}. Consider delegating to worker agents in isolated worktrees."
+      fi
     fi
   fi
 
@@ -136,6 +167,9 @@ heartbeat_warnings=$(detect_stalled_heartbeats "$board_state_for_heartbeat")
 
 # Build the system message from available parts
 parts=()
+if [ -n "$rate_limit_warning" ]; then
+  parts+=("$rate_limit_warning")
+fi
 if [ -n "$breaker_warning" ]; then
   parts+=("$breaker_warning")
 fi
@@ -145,6 +179,9 @@ fi
 if [ -n "$changes" ]; then
   parts+=("Board changes since last prompt:")
   parts+=("$changes")
+fi
+if [ -n "$pause_notice" ]; then
+  parts+=("$pause_notice")
 fi
 if [ -n "$dispatch_nudge" ]; then
   parts+=("$dispatch_nudge")
