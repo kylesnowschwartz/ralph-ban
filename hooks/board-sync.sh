@@ -8,7 +8,6 @@ trap 'echo "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"ad
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/board-state.sh"
-source "$SCRIPT_DIR/lib/heartbeat.sh"
 require_bl
 
 # --- Rate limit detection ---
@@ -106,12 +105,12 @@ if [ -n "$changes" ]; then
         result_state=$(echo "$result" | cut -d' ' -f1)
         result_count=$(echo "$result" | cut -d' ' -f2)
         case "$result_state" in
-          OPEN)
-            breaker_warning="CIRCUIT BREAKER OPEN: Card ${card_id} has bounced ${result_count} times. Stop auto-dispatching. Ask the user for direction — the task may need rethinking, splitting, or manual intervention."
-            ;;
-          HALF_OPEN_REOPEN)
-            breaker_warning="CIRCUIT BREAKER RE-OPENED: Card ${card_id} failed its probe attempt (${result_count} total bounces). Cool-down restarted. Ask the user for direction before retrying."
-            ;;
+        OPEN)
+          breaker_warning="CIRCUIT BREAKER OPEN: Card ${card_id} has bounced ${result_count} times. Stop auto-dispatching. Ask the user for direction — the task may need rethinking, splitting, or manual intervention."
+          ;;
+        HALF_OPEN_REOPEN)
+          breaker_warning="CIRCUIT BREAKER RE-OPENED: Card ${card_id} failed its probe attempt (${result_count} total bounces). Cool-down restarted. Ask the user for direction before retrying."
+          ;;
           # CLOSED: still within normal threshold — no warning needed
         esac
       fi
@@ -147,14 +146,6 @@ record_card_progress
 stall_warnings=""
 stall_warnings=$(detect_stalled_cards)
 
-# --- Heartbeat stall detection: check for unresponsive worker agents ---
-# Workers write a timestamp on every UserPromptSubmit. A file older than
-# HEARTBEAT_STALE_SECONDS (default 5 min) means the agent has gone silent
-# while still holding a doing card — likely hung or crashed.
-board_state_for_heartbeat=$(read_board)
-heartbeat_warnings=""
-heartbeat_warnings=$(detect_stalled_heartbeats "$board_state_for_heartbeat")
-
 # Build the system message from available parts
 parts=()
 if [ -n "$rate_limit_warning" ]; then
@@ -183,11 +174,6 @@ if [ -n "$stall_warnings" ]; then
   parts+=("STALL DETECTED:")
   parts+=("$stall_warnings")
 fi
-if [ -n "$heartbeat_warnings" ]; then
-  parts+=("WORKER HEARTBEAT STALL:")
-  parts+=("$heartbeat_warnings")
-fi
-
 if [ ${#parts[@]} -gt 0 ]; then
   # User-visible summary: just the parts, no orchestration framing.
   user_message=$(printf '%s\n' "${parts[@]}")
@@ -197,8 +183,3 @@ if [ ${#parts[@]} -gt 0 ]; then
   jq -n --arg ctx "$agent_message" --arg msg "$user_message" \
     '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $ctx}, systemMessage: $msg}'
 fi
-
-# Write this agent's heartbeat and clean up stale files for completed agents.
-# Done after output so heartbeat I/O doesn't affect hook exit status.
-write_heartbeat
-cleanup_heartbeats "$board_state_for_heartbeat"
