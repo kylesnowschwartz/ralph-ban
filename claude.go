@@ -37,7 +37,12 @@ func runClaude(args []string) {
 		os.Exit(1)
 	}
 
-	claudeArgs := buildClaudeArgs(pluginDir, *model, *autonomous, *teammateMode, *prompt)
+	// Resolve the settings file path so hook commands work from any cwd.
+	// The settings file uses $BL_ROOT to reference hook scripts, so it works
+	// for workers in worktrees even though their cwd differs from the project root.
+	settingsPath := filepath.Join(pluginDir, ".claude-plugin", "settings.json")
+
+	claudeArgs := buildClaudeArgs(pluginDir, settingsPath, *model, *autonomous, *teammateMode, *prompt)
 
 	// Set agent name so hooks can identify this session.
 	os.Setenv("CLAUDE_AGENT_NAME", *name)
@@ -56,10 +61,13 @@ func runClaude(args []string) {
 // buildClaudeArgs constructs the argument list for the claude binary.
 // The --agent flag delegates agent loading to Claude Code, which reads
 // agents/orchestrator.md and applies its frontmatter (model, isolation, etc.).
-func buildClaudeArgs(pluginDir, model string, autonomous bool, teammateMode, prompt string) []string {
+// settingsPath is passed via --settings so hook commands resolve correctly
+// for both the orchestrator and workers spawned in isolated worktrees.
+func buildClaudeArgs(pluginDir, settingsPath, model string, autonomous bool, teammateMode, prompt string) []string {
 	args := []string{
 		"--plugin-dir", pluginDir,
 		"--agent", "orchestrator",
+		"--settings", settingsPath,
 	}
 
 	// Only pass --model when explicitly overriding the agent's default.
