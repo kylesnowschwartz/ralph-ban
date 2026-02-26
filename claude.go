@@ -77,7 +77,7 @@ func buildClaudeArgs(pluginDir, model string, autonomous bool, teammateMode, pro
 
 	// Initial prompt as positional argument.
 	if prompt == "" {
-		prompt = "Check the board and start working on the highest-priority ready item."
+		prompt = "State your role and mission, then assess the board and begin orchestration."
 	}
 	args = append(args, prompt)
 

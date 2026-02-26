@@ -23,8 +23,15 @@ TEST_DIR=""
 # --- Helpers ---
 
 setup() {
-  TEST_DIR=$(mktemp -d)
+  TEST_DIR="/tmp/ralph-ban-test-hooks"
+  rm -rf "$TEST_DIR"
+  mkdir -p "$TEST_DIR"
   cd "$TEST_DIR"
+  # Isolate from parent environment — BL_ROOT leaks from ./ralph-ban claude
+  # and points hooks at the real database instead of the test database.
+  unset BL_ROOT
+  unset CLAUDE_TEAM_NAME
+  unset CLAUDE_AGENT_NAME
   bl init >/dev/null 2>&1
   mkdir -p .ralph-ban
 }
@@ -323,10 +330,10 @@ test_stop_guard_blocks_teammate_uncommitted() {
   setup
   # Init git so git status --porcelain works
   git init -q . >/dev/null 2>&1
-  echo "seed" > seed.txt
+  echo "seed" >seed.txt
   git add seed.txt && git commit -q -m "init" >/dev/null 2>&1
   # Create a tracked-then-modified file so porcelain shows it
-  echo "dirty" >> seed.txt
+  echo "dirty" >>seed.txt
 
   local out
   out=$(CLAUDE_TEAM_NAME=test-team "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)

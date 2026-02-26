@@ -51,6 +51,12 @@ total=$(echo "$ready" | wc -l | tr -d ' ')
 
 preamble=$(framework_preamble)
 board_summary="Board has ${total} ready items. Highest priority: '${title}' (${id}, ${status})."
-emit_context "${preamble}
-${board_summary} Run \`bl claim ${id} --agent claude\` to start working on it." \
-  "$board_summary"
+
+if [ -z "${CLAUDE_TEAM_NAME:-}" ]; then
+  # Main session: preamble (includes orchestrator role) + board summary
+  emit_context "${preamble}
+${board_summary}" "$board_summary"
+else
+  # Teammate: board context only (agent frontmatter handles role)
+  emit_context "$board_summary" "$board_summary"
+fi

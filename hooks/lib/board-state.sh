@@ -4,7 +4,13 @@
 
 # framework_preamble outputs a compact description of the orchestration lifecycle.
 # SessionStart and PreCompact include the full version; other hooks use a one-liner.
+# Main session (no team) gets orchestrator role; teammates get role from agent frontmatter.
 framework_preamble() {
+  if [ -z "${CLAUDE_TEAM_NAME:-}" ]; then
+    cat <<'ROLE'
+You are the orchestrator. Spawn workers for implementation, reviewers for review. Never implement or review code directly. Human approval required before any merge.
+ROLE
+  fi
   cat <<'PREAMBLE'
 Ralph-Ban Orchestration
 - SessionStart: board snapshot, suggested next task
@@ -264,7 +270,7 @@ record_card_progress() {
     ' 2>/dev/null || echo "{}")
 
   mkdir -p "$(dirname "$PROGRESS_FILE")"
-  echo "$updated" > "$PROGRESS_FILE"
+  echo "$updated" >"$PROGRESS_FILE"
 }
 
 # detect_stalled_cards outputs warnings for cards exceeding the stall threshold.
