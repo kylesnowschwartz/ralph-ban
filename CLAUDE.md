@@ -47,7 +47,7 @@ Cards move right. The orchestrator owns status transitions and card closure.
 
 ### Worker claiming
 
-The orchestrator pre-claims cards before spawning workers. Workers immediately re-claim with their own name. This is load-bearing: TeammateIdle and TaskCompleted hooks identify cards by `assigned_to` matching the teammate's name.
+Workers own their full card lifecycle. The orchestrator dispatches without pre-claiming. On startup, each worker runs `bl claim <id> --agent worker` then `bl update <id> --status doing`. This is load-bearing: TeammateIdle and TaskCompleted hooks identify cards by `assigned_to` matching the worker's name. See `agents/worker.md` for the canonical execution protocol.
 
 ## Hooks
 
