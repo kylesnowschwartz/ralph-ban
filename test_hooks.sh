@@ -645,6 +645,102 @@ test_stop_guard_missing_stop_mode_field_defaults_to_batch() {
   teardown
 }
 
+# --- stop-guard.sh debounce ---
+
+test_stop_guard_debounce_first_call_shows_message() {
+  setup
+  local create_out id
+  create_out=$(bl create "Pending Todo")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  # No hash file present — first call must emit systemMessage
+  rm -f .ralph-ban/.stop-last-msg-hash
+
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "debounce: first call still blocks"
+  assert_contains "$out" "systemMessage" "debounce: first call shows systemMessage"
+  teardown
+}
+
+test_stop_guard_debounce_second_identical_call_omits_message() {
+  setup
+  local create_out id
+  create_out=$(bl create "Pending Todo")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  echo '{"stop_mode":"autonomous"}' > .ralph-ban/config.json
+  rm -f .ralph-ban/.stop-last-msg-hash
+
+  # First call — emits and saves the hash
+  CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" >/dev/null 2>/dev/null || true
+
+  # Second call with identical board state — systemMessage should be absent
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "debounce: second call still blocks"
+  assert_not_contains "$out" "systemMessage" "debounce: second identical call omits systemMessage"
+  teardown
+}
+
+test_stop_guard_debounce_new_message_shows_after_board_change() {
+  setup
+  local create_out id1 id2
+  create_out=$(bl create "First Task")
+  id1=$(extract_id "$create_out")
+  bl update "$id1" --status doing >/dev/null
+  echo '{"stop_mode":"autonomous"}' > .ralph-ban/config.json
+  rm -f .ralph-ban/.stop-last-msg-hash
+
+  # First call — board has 1 doing card
+  CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" >/dev/null 2>/dev/null || true
+
+  # Add a second doing card to change the board message (counts change)
+  create_out=$(bl create "Second Task")
+  id2=$(extract_id "$create_out")
+  bl update "$id2" --status doing >/dev/null
+
+  # Board changed — counts differ — systemMessage should return
+  local out
+  out=$(CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" 2>/dev/null || true)
+  assert_contains "$out" '"block"' "debounce: still blocks after board change"
+  assert_contains "$out" "systemMessage" "debounce: shows systemMessage when board state changes"
+  teardown
+}
+
+test_stop_guard_debounce_hash_reset_on_allow_exit() {
+  setup
+  local create_out id
+  create_out=$(bl create "Doing Task")
+  id=$(extract_id "$create_out")
+  bl update "$id" --status doing >/dev/null
+  echo '{"stop_mode":"autonomous"}' > .ralph-ban/config.json
+  rm -f .ralph-ban/.stop-last-msg-hash
+
+  # First block call — saves hash
+  CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" >/dev/null 2>/dev/null || true
+  # Verify hash file was written
+  if [ -f .ralph-ban/.stop-last-msg-hash ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: debounce: hash file should exist after first block"
+  fi
+
+  # Clear the board so the hook allows exit
+  bl close "$id" >/dev/null
+  CLAUDE_AGENT_NAME=orchestrator "$HOOKS_DIR/stop-guard.sh" >/dev/null 2>/dev/null || true
+
+  # Hash file should be cleaned up on allow-exit
+  if [ ! -f .ralph-ban/.stop-last-msg-hash ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: debounce: hash file should be removed after allow-exit"
+  fi
+  teardown
+}
+
 # --- Run all tests ---
 
 echo "=== ralph-ban Hook Tests ==="
@@ -686,6 +782,10 @@ test_stop_guard_autonomous_mode_blocks_todo
 test_stop_guard_autonomous_mode_blocks_todo_and_doing
 test_stop_guard_missing_config_defaults_to_batch
 test_stop_guard_missing_stop_mode_field_defaults_to_batch
+test_stop_guard_debounce_first_call_shows_message
+test_stop_guard_debounce_second_identical_call_omits_message
+test_stop_guard_debounce_new_message_shows_after_board_change
+test_stop_guard_debounce_hash_reset_on_allow_exit
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
