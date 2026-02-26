@@ -23,19 +23,18 @@ Four invariants that shape every decision in this codebase:
 
 Layout uses `panOffset` to slide a window of visible columns (`minColumnWidth=24`). Narrow terminals can't fit all 5, so the focused column is always kept in view. Offscreen columns stay in memory — no evict/reload on pan.
 
-## Agent Roles
+## Agent Model
 
-Three agent types coordinate work. The split enforces separation of concerns by role — each agent can only act within its lane, reducing the blast radius of errors.
+Single agent + subagent worktrees. The lead agent reads the board and dispatches subagent workers via `Task(isolation: "worktree")`. Workers implement in isolated worktrees and return results. The lead agent reviews diffs directly, then merges to main.
 
-- **Orchestrator** (`agents/orchestrator.md`) — Sees the whole board, never touches code. Uses opus for coordination judgment.
-- **Worker** (`agents/worker.md`) — Implements one card in an isolated git worktree. Uses sonnet (sufficient for implementation). Worktrees allow multiple workers in parallel without working-tree conflicts.
-- **Reviewer** (`agents/reviewer.md`) — Reviews one card in an isolated worktree. Reports approve/reject to the orchestrator. Can't move cards or merge — concurrent status transitions from multiple reviewers would create race conditions. Only the orchestrator serializes transitions.
+- **Orchestrator** (`agents/orchestrator.md`) — Reads the board, dispatches workers, reviews diffs, merges. Never implements code directly. Uses opus.
+- **Worker** (`agents/worker.md`) — Implements one card in an isolated git worktree. Uses sonnet. Worktrees allow multiple workers in parallel without working-tree conflicts.
 
 ### Workflow phases
 
 ```
-batch:      ASSESS -> SPAWN -> MONITOR -> REVIEW -> HUMAN APPROVAL -> MERGE
-autonomous: ASSESS -> SPAWN -> MONITOR -> REVIEW -> MERGE
+batch:      ASSESS -> DISPATCH -> REVIEW -> HUMAN APPROVAL -> MERGE
+autonomous: ASSESS -> DISPATCH -> REVIEW -> MERGE
 ```
 
 ### Status flow
@@ -46,35 +45,27 @@ Backlog -> To Do -> Doing -> Review -> Done
 
 Cards move right. The orchestrator owns status transitions and card closure.
 
-### Worker claiming
-
-Workers own their full card lifecycle. The orchestrator dispatches without pre-claiming. On startup, each worker runs `bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}` then `bl update <id> --status doing`. This is load-bearing: TeammateIdle and TaskCompleted hooks identify cards by `assigned_to` matching the worker's name.
-
-The orchestrator passes the card ID as the worker's name via the Task tool's `name:` parameter (e.g. `name: "bl-abc1"`). This sets `CLAUDE_AGENT_NAME` inside the worker, giving each worker a unique identity. Without this, parallel workers all share the name `worker` and hooks can't distinguish them — heartbeats collide and TeammateIdle can't scope correctly. See `agents/worker.md` for the canonical execution protocol.
-
 ## Hooks
 
-Six hooks inject board state and enforce workflow gates. All source `hooks/lib/board-state.sh` for shared infrastructure (per-invocation SQLite caching, hash-based change detection, `BL_ROOT` for worktree path resolution).
+Four hooks inject board state and enforce workflow gates. All source `hooks/lib/board-state.sh` for shared infrastructure (per-invocation SQLite caching, hash-based change detection, `BL_ROOT` for worktree path resolution).
 
-- **SessionStart** — Board snapshot + framework preamble into agent context. User sees only the board summary, not the orchestration preamble.
+- **SessionStart** — Board snapshot into agent context. User sees the board summary.
 - **UserPromptSubmit** — Diffs board since last snapshot. Embeds dispatch nudges (unclaimed todos), review queue alerts (3+ in review), circuit breaker (cards bouncing review-doing 3+ times), and stall detection (cards stuck in doing 5+ cycles).
-- **Stop** — Three layers: (1) uncommitted changes block all agents, (2) claimed active cards block the claiming agent, (3) any active board work blocks the orchestrator. A `stop_hook_active` flag prevents infinite recursion.
-- **TeammateIdle** — Workers can't go idle while they own doing/todo cards. Exits non-zero to keep the worker working.
-- **TaskCompleted** — Workers can't mark tasks complete while their cards are still in doing. Enforces the review step.
-- **PreCompact** — Re-injects full board state + preamble before context compression. Without this, compressed context loses the structured board state and the agent loses awareness.
+- **Stop** — Blocks on uncommitted changes and active board work (batch: doing only; autonomous: todo + doing). A `stop_hook_active` flag prevents infinite recursion. Stall cycle limit prevents permanent trapping.
+- **PreCompact** — Re-injects board state summary before context compression. Without this, compressed context loses board awareness.
 
 ### Hook output channels
 
 | Event | Agent context | User-visible |
 |-------|--------------|--------------|
-| SessionStart | `additionalContext` (preamble + board) | `systemMessage` (board summary) |
+| SessionStart | `additionalContext` (board summary) | `systemMessage` (board summary) |
 | UserPromptSubmit | `additionalContext` (checkpoint + diffs) | `systemMessage` (diffs only) |
 | Stop | `systemMessage` (workflow guidance) | `reason` (short block reason) |
 | PreCompact | Both channels get full state (compression destroys prior context) |
 
 ## Agent Frontmatter
 
-Workers and reviewers have `maxTurns` and `permissionMode: bypassPermissions` set in their YAML frontmatter. Claude Code enforces these natively — no CLI flags needed.
+Workers have `maxTurns` and `permissionMode: bypassPermissions` set in their YAML frontmatter. Claude Code enforces these natively — no CLI flags needed.
 
 ## Development
 
