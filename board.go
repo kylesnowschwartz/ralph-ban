@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -20,6 +21,7 @@ const (
 	viewBoard  boardView = iota // default: show columns
 	viewForm                    // create/edit form overlay
 	viewDetail                  // card detail overlay
+	viewSearch                  // cross-column search mode
 )
 
 // board is the root tea.Model for the kanban TUI.
@@ -40,6 +42,11 @@ type board struct {
 	// Single-level undo for accidental moves.
 	lastMove *moveMsg
 
+	// Search state: input holds the query; allItems caches the full per-column
+	// lists so we can restore them when search is cancelled.
+	searchInput textinput.Model
+	allItems    [numColumns][]list.Item
+
 	// Layout panning
 	termWidth  int
 	termHeight int
@@ -58,10 +65,15 @@ func newBoard(store *beadslite.Store) *board {
 	h.Styles.ShortKey = h.Styles.ShortKey.Bold(true).PaddingRight(1)
 	h.Styles.FullKey = h.Styles.FullKey.Bold(true).PaddingRight(1)
 
+	si := textinput.New()
+	si.Placeholder = "search cards..."
+	si.CharLimit = 80
+
 	b := &board{
-		store: store,
-		cols:  cols,
-		help:  h,
+		store:       store,
+		cols:        cols,
+		help:        h,
+		searchInput: si,
 	}
 	b.cols[b.focused].Focus()
 	return b
@@ -122,6 +134,8 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.updateDetail(msg)
 	case viewForm:
 		return b.updateForm(msg)
+	case viewSearch:
+		return b.updateSearch(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -198,6 +212,10 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.help.ShowAll = !b.help.ShowAll
 			return b, nil
 
+		case key.Matches(msg, keys.Search):
+			b.openSearch()
+			return b, textinputBlink()
+
 		}
 	}
 
@@ -241,14 +259,19 @@ func (b *board) View() string {
 			Render("Error: " + b.err.Error())
 	}
 
-	helpView := b.help.View(keys)
+	var footerView string
+	if b.view == viewSearch {
+		footerView = b.searchBarView()
+	} else {
+		footerView = b.help.View(keys)
+	}
 
 	full := lipgloss.JoinVertical(lipgloss.Left,
 		"", // breathing room above column headings
 		columnsView,
 		indicator,
 		errView,
-		helpView,
+		footerView,
 	)
 
 	return lipgloss.NewStyle().MaxWidth(b.termWidth).Render(full)
@@ -266,6 +289,8 @@ func (b *board) loadFromStore() tea.Cmd {
 }
 
 // applyRefresh partitions issues by status and updates column lists.
+// When search is active, the full item set is stashed in allItems and only
+// matching items are shown so the live filter stays consistent across polls.
 func (b *board) applyRefresh(issues []*beadslite.Issue) {
 	buckets := partitionByStatus(issues)
 	for i := columnIndex(0); i < numColumns; i++ {
@@ -273,7 +298,12 @@ func (b *board) applyRefresh(issues []*beadslite.Issue) {
 		if items == nil {
 			items = []list.Item{}
 		}
-		b.cols[i].SetItems(items)
+		if b.view == viewSearch {
+			b.allItems[i] = items
+			b.cols[i].SetItems(filterItems(items, b.searchInput.Value()))
+		} else {
+			b.cols[i].SetItems(items)
+		}
 	}
 }
 
@@ -650,6 +680,103 @@ func (b *board) positionIndicator() string {
 		Width(b.termWidth).
 		Align(lipgloss.Center).
 		Render("[" + indicator + "]")
+}
+
+// openSearch enters search mode: snapshot all column items and activate the input.
+func (b *board) openSearch() {
+	for i := columnIndex(0); i < numColumns; i++ {
+		b.allItems[i] = b.cols[i].list.Items()
+	}
+	b.searchInput.Reset()
+	b.searchInput.Focus()
+	b.view = viewSearch
+}
+
+// cancelSearch restores all columns to their pre-search item sets and exits search mode.
+func (b *board) cancelSearch() {
+	for i := columnIndex(0); i < numColumns; i++ {
+		b.cols[i].SetItems(b.allItems[i])
+	}
+	b.searchInput.Blur()
+	b.view = viewBoard
+}
+
+// dismissSearch exits search mode without restoring the full list. The filter is transient —
+// the next 2-second refresh tick replaces the filtered view with full data from SQLite.
+func (b *board) dismissSearch() {
+	b.searchInput.Blur()
+	b.view = viewBoard
+}
+
+// updateSearch handles input while in search mode.
+func (b *board) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.Back):
+			b.cancelSearch()
+			return b, nil
+		case msg.Type == tea.KeyEnter:
+			b.dismissSearch()
+			return b, nil
+		}
+	}
+
+	// Forward to text input and re-filter on every change.
+	prevQuery := b.searchInput.Value()
+	var cmd tea.Cmd
+	b.searchInput, cmd = b.searchInput.Update(msg)
+
+	if b.searchInput.Value() != prevQuery {
+		b.applySearchFilter(b.searchInput.Value())
+	}
+
+	return b, cmd
+}
+
+// applySearchFilter updates each column to show only items matching query.
+func (b *board) applySearchFilter(query string) {
+	for i := columnIndex(0); i < numColumns; i++ {
+		b.cols[i].SetItems(filterItems(b.allItems[i], query))
+	}
+}
+
+// filterItems returns only items whose title or body text contain query (case-insensitive).
+// An empty query returns all items unchanged.
+func filterItems(items []list.Item, query string) []list.Item {
+	if query == "" {
+		return items
+	}
+	q := strings.ToLower(query)
+	var out []list.Item
+	for _, item := range items {
+		c, ok := item.(card)
+		if !ok {
+			continue
+		}
+		if strings.Contains(strings.ToLower(c.FilterValue()), q) ||
+			strings.Contains(strings.ToLower(c.issue.Description), q) {
+			out = append(out, item)
+		}
+	}
+	if out == nil {
+		out = []list.Item{}
+	}
+	return out
+}
+
+// searchBarView renders the search input in place of the help bar.
+func (b *board) searchBarView() string {
+	label := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("170")).
+		Bold(true).
+		Render("/ ")
+
+	hint := lipgloss.NewStyle().
+		Faint(true).
+		Render("  enter: accept  esc: cancel")
+
+	return label + b.searchInput.View() + hint
 }
 
 // textinputBlink returns a command to start the text input cursor blinking.
