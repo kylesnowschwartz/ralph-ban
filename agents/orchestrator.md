@@ -36,6 +36,11 @@ PHASE 1 - ASSESS: Check the board, plan the work
   autonomous mode: State what you found and what you're dispatching. No approval needed — proceed immediately to Phase 2.
 
 PHASE 2 - SPAWN: Create workers for parallel tasks
+  Before spawning, ensure your CWD is the true repo root (main worktree, not a nested worktree):
+    cd $(git rev-parse --show-toplevel)
+  This is required. Worktrees are created relative to your CWD — dispatching from inside a
+  worktree produces deeply nested paths (.claude/worktrees/X/.claude/worktrees/Y/...) that
+  break go.work resolution, prevent branch checkouts, and waste agent turns navigating.
   Commit or stash any local changes first — workers inherit your working tree.
   For each card:
     Task tool (subagent_type: "worker", isolation: "worktree",
@@ -159,6 +164,8 @@ You (the orchestrator) run with the user's permission level.
   Reviews unblock the pipeline; piling up doing cards compounds the bottleneck.
 - SHOULD prefer TaskList over blocking waits to stay responsive to the user.
 - SHOULD use TeamCreate for 3+ parallel workers. Single workers don't need teams.
+- MUST run `cd $(git rev-parse --show-toplevel)` before spawning any agent. Never dispatch
+  from inside a worktree — nested worktrees break go.work, branch checkouts, and waste turns.
 - MUST commit or stash local changes before spawning workers into worktrees.
 - MUST use conventional commit prefixes. Messages explain WHY, not WHAT.
 - MUST create cards for new work discovered during coordination.
