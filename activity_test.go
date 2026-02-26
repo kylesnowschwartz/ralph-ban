@@ -50,7 +50,7 @@ func TestScanActivity_ActiveAgent(t *testing.T) {
 	// Heartbeat written 30 seconds ago — should be active.
 	writeHeartbeat(t, dir, "worker-1", now-30)
 
-	issue := makeIssue("bl-abc1", "Fix thing", "worker-1", beadslite.StatusDoing)
+	issue := makeActivityIssue("bl-abc1", "Fix thing", "worker-1", beadslite.StatusDoing)
 	entries := scanActivity(dir, []*beadslite.Issue{issue})
 
 	if len(entries) != 1 {
@@ -74,7 +74,7 @@ func TestScanActivity_StalledAgent(t *testing.T) {
 	// Heartbeat 10 minutes ago — stale threshold is 5 min.
 	writeHeartbeat(t, dir, "worker-stalled", now-600)
 
-	issue := makeIssue("bl-xyz", "Old task", "worker-stalled", beadslite.StatusDoing)
+	issue := makeActivityIssue("bl-xyz", "Old task", "worker-stalled", beadslite.StatusDoing)
 	entries := scanActivity(dir, []*beadslite.Issue{issue})
 
 	if len(entries) != 1 {
@@ -88,7 +88,7 @@ func TestScanActivity_StalledAgent(t *testing.T) {
 func TestScanActivity_IdleAgentNoHeartbeat(t *testing.T) {
 	dir := t.TempDir()
 	// No heartbeat file, but agent has a doing card.
-	issue := makeIssue("bl-new", "New card", "worker-fresh", beadslite.StatusDoing)
+	issue := makeActivityIssue("bl-new", "New card", "worker-fresh", beadslite.StatusDoing)
 	entries := scanActivity(dir, []*beadslite.Issue{issue})
 
 	if len(entries) != 1 {
@@ -126,14 +126,14 @@ func TestScanActivity_SortOrder(t *testing.T) {
 
 	// stalled agent
 	writeHeartbeat(t, dir, "worker-b", now-600)
-	issueB := makeIssue("bl-b", "Task B", "worker-b", beadslite.StatusDoing)
+	issueB := makeActivityIssue("bl-b", "Task B", "worker-b", beadslite.StatusDoing)
 
 	// active agent
 	writeHeartbeat(t, dir, "worker-a", now-30)
-	issueA := makeIssue("bl-a", "Task A", "worker-a", beadslite.StatusDoing)
+	issueA := makeActivityIssue("bl-a", "Task A", "worker-a", beadslite.StatusDoing)
 
 	// idle (no heartbeat)
-	issueC := makeIssue("bl-c", "Task C", "worker-c", beadslite.StatusDoing)
+	issueC := makeActivityIssue("bl-c", "Task C", "worker-c", beadslite.StatusDoing)
 
 	entries := scanActivity(dir, []*beadslite.Issue{issueA, issueB, issueC})
 
@@ -193,7 +193,7 @@ func TestTruncate(t *testing.T) {
 }
 
 func TestClassifyStatus(t *testing.T) {
-	issue := makeIssue("bl-x", "Test", "agent", beadslite.StatusDoing)
+	issue := makeActivityIssue("bl-x", "Test", "agent", beadslite.StatusDoing)
 
 	tests := []struct {
 		elapsed time.Duration
