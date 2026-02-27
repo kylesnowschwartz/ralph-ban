@@ -17,6 +17,12 @@ func newTestBoard(t *testing.T) *board {
 	b.termWidth = 120
 	b.termHeight = 40
 	b.loaded = true
+	// Clear WIP config so tests don't depend on whatever .ralph-ban/config.json
+	// happens to exist on the developer's machine.
+	b.wip = boardConfig{}
+	for i := columnIndex(0); i < numColumns; i++ {
+		b.cols[i].wipLimit = 0
+	}
 	b.resizeColumns()
 	return b
 }
