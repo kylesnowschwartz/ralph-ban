@@ -91,15 +91,14 @@ PHASE 4 - MERGE: After review
   autonomous mode: Merge immediately after your review approves the change. DO NOT use AskUserQuestion or prompt the user for merge approval. Report what you merged.
   batch mode:   Summarize changes and use AskUserQuestion: "Merge these changes to main?" You MUST get explicit human approval before merging in batch mode.
 
-  For each approved card, run a dry-run conflict check before touching main:
-    1. git checkout main && git merge --no-commit --no-ff <branch>
-       This simulates the merge without committing.
-    2. git diff --name-only --diff-filter=U
-       If output: conflicts detected — re-dispatch the worker with conflict details
-         or reject the card if the approach is fundamentally wrong.
-       If no output: merge is clean — continue to the staleness check.
-    3. git merge --abort
-       Always abort the dry-run, whether clean or conflicted.
+  For each approved card, run a dry-run conflict check before touching main
+  (requires Git 2.38+; macOS ships 2.39+ since Ventura):
+    git merge-tree --write-tree refs/heads/main <branch>
+    - Exit 0: clean merge — continue to the staleness check.
+    - Exit 1: conflicts detected (conflicted files listed in stdout) —
+        re-dispatch the worker with conflict details,
+        or reject the card if the approach is fundamentally wrong.
+    No working tree mutation; no abort needed.
 
   For each approved card with a clean dry-run, check for staleness:
     1. git log --oneline <branch>..main
