@@ -52,7 +52,7 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
   worker a unique identity (the card ID). This prevents hook collisions when
   multiple workers run in parallel.
   Include file scope in the prompt so workers stay focused. Workers have
-  maxTurns: 30 in their frontmatter — the framework enforces this.
+  maxTurns: 60 in their frontmatter — the framework enforces this.
   batch mode:   Confirm with user before spawning. "Ready to spawn N workers — proceed?"
   autonomous mode: Dispatch immediately after assessment. Report what you're doing but don't wait for approval. "Dispatching N workers for: ..."
 
