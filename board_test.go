@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -383,6 +384,31 @@ func TestUndoStack_ClearedOnRefresh(t *testing.T) {
 
 func TestColumnAtX_MapsToCorrectColumn(t *testing.T) {
 	b := newTestBoard(t) // 120 wide, 5 columns visible → 24 px each
+
+	// Populate all columns so none collapse — empty columns shrink to
+	// collapsedOuterWidth strips, which would invalidate the fixed-width assumptions.
+	statuses := []beadslite.Status{
+		beadslite.StatusBacklog,
+		beadslite.StatusTodo,
+		beadslite.StatusDoing,
+		beadslite.StatusReview,
+		beadslite.StatusDone,
+	}
+	for i, status := range statuses {
+		issue := makeIssue(fmt.Sprintf("bl-x%d", i), "card", status)
+		if err := b.store.CreateIssue(issue); err != nil {
+			t.Fatalf("CreateIssue: %v", err)
+		}
+	}
+	// Load items into columns and recalculate layout.
+	items, err := loadIssues(b.store)
+	if err != nil {
+		t.Fatalf("loadIssues: %v", err)
+	}
+	for i := columnIndex(0); i < numColumns; i++ {
+		b.cols[i].SetItems(items[i])
+	}
+	b.resizeColumns()
 
 	tests := []struct {
 		x    int
