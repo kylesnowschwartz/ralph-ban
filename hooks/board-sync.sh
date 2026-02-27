@@ -12,23 +12,25 @@ require_bl
 
 # --- Rate limit detection ---
 # Scan the hook's input JSON for known rate limit signals before doing anything
-# else. Claude Code passes the full context as stdin JSON; both the transcript
-# and top-level text fields may contain the signal.
+# else. Claude Code passes the full context as stdin JSON.
 #
-# Patterns matched (case-insensitive):
-#   "rate_limit" or "rate limit" — Claude SDK error codes and prose
-#   "429"                        — HTTP status code
-#   "too many requests"          — HTTP/API status text
-#   "overloaded"                 — Anthropic overload responses
-# Workers that crash on a rate limit often set stop_reason="error" but the
-# message content carries the clearest signal, so we scan the raw JSON.
+# IMPORTANT: We match JSON structure (quoted keys and colons), NOT bare prose.
+# The input JSON includes board state with card titles and descriptions — a card
+# titled "investigate rate limit errors" must NOT trigger a pause. Patterns that
+# include JSON syntax (quotes, colons) can't appear in plain-text card titles.
+#
+# Patterns matched:
+#   "type":"rate_limit_error"   — Anthropic SDK structured error type field
+#   "type":"overloaded_error"   — Anthropic overload structured error type field
+#   "status":429                — HTTP status 429 as a JSON numeric field value
+#   "status_code":429           — alternate HTTP status field name used by some clients
 input_json=""
 if [ ! -t 0 ]; then
   input_json=$(cat 2>/dev/null || true)
 fi
 
 rate_limit_warning=""
-if echo "$input_json" | grep -qi "rate_limit\|\"error\".*\"429\"\|\"status\":.*429\|too many requests\|overloaded_error" 2>/dev/null; then
+if echo "$input_json" | grep -q '"type"[[:space:]]*:[[:space:]]*"rate_limit_error"\|"type"[[:space:]]*:[[:space:]]*"overloaded_error"\|"status"[[:space:]]*:[[:space:]]*429\|"status_code"[[:space:]]*:[[:space:]]*429' 2>/dev/null; then
   write_rate_limit_pause
   rate_limit_warning="RATE LIMIT DETECTED: Claude API rate limit signal found in hook context. Pause marker written — new dispatches are suppressed for up to 30 minutes. Existing workers will continue. Check active doing cards and wait for the limit to lift before spawning new agents."
 fi
