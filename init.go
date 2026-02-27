@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,12 +41,14 @@ var defaultConfig = wipConfig{
 // If --seed is passed, a small set of starter cards is created in Backlog so
 // the board opens with something visible instead of empty columns.
 func runInit(args []string) {
-	seed := false
-	for _, arg := range args {
-		if arg == "--seed" {
-			seed = true
-		}
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	seedFlag := fs.Bool("seed", false, "create starter cards in Backlog")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: ralph-ban init [flags]\n\nInitialize a new ralph-ban project in the current directory.\nCreates .ralph-ban/ (config) and .beads-lite/ (database).\n\nFlags:\n")
+		fs.PrintDefaults()
 	}
+	fs.Parse(args)
+	seed := *seedFlag
 
 	// --- Step 1: Create .ralph-ban/ config directory ---
 	if err := os.MkdirAll(ralphBanDir, 0755); err != nil {

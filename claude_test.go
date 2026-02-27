@@ -14,9 +14,9 @@ func TestBuildClaudeArgs(t *testing.T) {
 		pluginDir    string
 		settingsPath string
 		model        string
-		autonomous   bool
 		prompt       string
 		resume       string
+		passthrough  []string
 		wantContains []string
 		wantAbsent   []string
 	}{
@@ -24,9 +24,6 @@ func TestBuildClaudeArgs(t *testing.T) {
 			name:         "defaults",
 			pluginDir:    "/project",
 			settingsPath: "/project/.claude-plugin/settings.json",
-			model:        "",
-			autonomous:   false,
-			prompt:       "",
 			wantContains: []string{
 				"--plugin-dir", "/project",
 				"--agent", "orchestrator",
@@ -40,23 +37,23 @@ func TestBuildClaudeArgs(t *testing.T) {
 			},
 		},
 		{
-			name:         "autonomous with model override",
+			name:         "model override",
 			pluginDir:    "/project",
 			settingsPath: "/project/.claude-plugin/settings.json",
 			model:        "sonnet",
-			autonomous:   true,
-			prompt:       "",
-			wantContains: []string{
-				"--model", "sonnet",
-				"--dangerously-skip-permissions",
-			},
+			wantContains: []string{"--model", "sonnet"},
+		},
+		{
+			name:         "passthrough flags",
+			pluginDir:    "/project",
+			settingsPath: "/project/.claude-plugin/settings.json",
+			passthrough:  []string{"--dangerously-skip-permissions"},
+			wantContains: []string{"--dangerously-skip-permissions"},
 		},
 		{
 			name:         "custom prompt",
 			pluginDir:    "/project",
 			settingsPath: "/project/.claude-plugin/settings.json",
-			model:        "",
-			autonomous:   false,
 			prompt:       "Do something specific",
 			wantContains: []string{"Do something specific"},
 			wantAbsent:   []string{"State your role"},
@@ -65,9 +62,6 @@ func TestBuildClaudeArgs(t *testing.T) {
 			name:         "resume skips agent and prompt",
 			pluginDir:    "/project",
 			settingsPath: "/project/.claude-plugin/settings.json",
-			model:        "",
-			autonomous:   false,
-			prompt:       "",
 			resume:       "abc-123-session-id",
 			wantContains: []string{
 				"--plugin-dir", "/project",
@@ -83,7 +77,7 @@ func TestBuildClaudeArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			args := buildClaudeArgs(tt.pluginDir, tt.settingsPath, tt.model, tt.autonomous, tt.prompt, tt.resume)
+			args := buildClaudeArgs(tt.pluginDir, tt.settingsPath, tt.model, tt.prompt, tt.resume, tt.passthrough)
 			joined := strings.Join(args, " ")
 
 			t.Logf("args: %v", args)
@@ -109,6 +103,47 @@ func TestBuildClaudeArgs(t *testing.T) {
 						break
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestSplitAtDoubleDash(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		wantBefore []string
+		wantAfter  []string
+	}{
+		{
+			name:       "no separator",
+			args:       []string{"--model", "sonnet"},
+			wantBefore: []string{"--model", "sonnet"},
+		},
+		{
+			name:       "with separator",
+			args:       []string{"--stop-mode", "batch", "--", "--dangerously-skip-permissions"},
+			wantBefore: []string{"--stop-mode", "batch"},
+			wantAfter:  []string{"--dangerously-skip-permissions"},
+		},
+		{
+			name:      "empty before separator",
+			args:      []string{"--", "--verbose"},
+			wantAfter: []string{"--verbose"},
+		},
+		{
+			name: "nil args",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before, after := splitAtDoubleDash(tt.args)
+			if len(before) != len(tt.wantBefore) {
+				t.Errorf("before = %v, want %v", before, tt.wantBefore)
+			}
+			if len(after) != len(tt.wantAfter) {
+				t.Errorf("after = %v, want %v", after, tt.wantAfter)
 			}
 		})
 	}

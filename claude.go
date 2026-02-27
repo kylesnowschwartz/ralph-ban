@@ -13,19 +13,41 @@ import (
 // runClaude starts a Claude Code session with the ralph-ban plugin loaded
 // and the orchestrator agent. Claude Code reads agents/orchestrator.md
 // directly, including its YAML frontmatter (model, name, isolation).
+//
+// Flags before -- are ralph-ban's; flags after -- pass through to claude.
+// Example: ralph-ban claude --stop-mode batch -- --dangerously-skip-permissions
 func runClaude(args []string) {
+	flagArgs, passthrough := splitAtDoubleDash(args)
+
 	fs := flag.NewFlagSet("claude", flag.ExitOnError)
 	name := fs.String("name", "claude", "agent name (flows to hooks via CLAUDE_AGENT_NAME)")
 	model := fs.String("model", "", "override the agent's default model (opus, sonnet, haiku)")
-	autonomous := fs.Bool("autonomous", false, "skip permission prompts (dangerously-skip-permissions)")
-	prompt := fs.String("prompt", "", "override the initial prompt sent to claude")
-	resume := fs.String("resume", "", "resume a session by ID, or pass empty string for interactive picker")
-	stopMode := fs.String("stop-mode", "", "stop hook mode: 'batch' (stop after dispatched work) or 'autonomous' (work until board empty)")
+	prompt := fs.String("prompt", "", "initial prompt (also accepted as positional arg)")
+	resume := fs.String("resume", "", "resume a session by ID, or empty string for picker")
+	stopMode := fs.String("stop-mode", "", "stop hook: batch or autonomous")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: ralph-ban claude [flags]\n\nStart a Claude Code session with board orchestrator role.\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, `Usage: ralph-ban claude [flags] [prompt] [-- claude-flags...]
+
+Start a Claude Code session with the board orchestrator loaded.
+Flags before -- are ralph-ban's; flags after -- pass through to claude.
+
+Flags:
+`)
 		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, `
+Examples:
+  ralph-ban claude                              # default orchestrator session
+  ralph-ban claude --stop-mode batch            # stop after dispatched work completes
+  ralph-ban claude "assess the board"           # custom prompt
+  ralph-ban claude -- --dangerously-skip-permissions  # pass flags to claude
+`)
 	}
-	fs.Parse(args)
+	fs.Parse(flagArgs)
+
+	// Positional arg after flags = prompt (mirrors claude's own interface).
+	if fs.NArg() > 0 && *prompt == "" {
+		*prompt = fs.Arg(0)
+	}
 
 	pluginDir, err := findPluginDir()
 	if err != nil {
@@ -51,7 +73,7 @@ func runClaude(args []string) {
 		}
 	}
 
-	claudeArgs := buildClaudeArgs(pluginDir, settingsPath, *model, *autonomous, *prompt, *resume)
+	claudeArgs := buildClaudeArgs(pluginDir, settingsPath, *model, *prompt, *resume, passthrough)
 
 	// Set agent name so hooks can identify this session.
 	os.Setenv("CLAUDE_AGENT_NAME", *name)
@@ -72,7 +94,8 @@ func runClaude(args []string) {
 // agents/orchestrator.md and applies its frontmatter (model, isolation, etc.).
 // settingsPath is passed via --settings so hook commands resolve correctly
 // for both the orchestrator and workers spawned in isolated worktrees.
-func buildClaudeArgs(pluginDir, settingsPath, model string, autonomous bool, prompt, resume string) []string {
+// passthrough args are appended last — these come from after -- in the CLI.
+func buildClaudeArgs(pluginDir, settingsPath, model, prompt, resume string, passthrough []string) []string {
 	args := []string{
 		"--plugin-dir", pluginDir,
 		"--settings", settingsPath,
@@ -91,9 +114,8 @@ func buildClaudeArgs(pluginDir, settingsPath, model string, autonomous bool, pro
 		args = append(args, "--model", model)
 	}
 
-	if autonomous {
-		args = append(args, "--dangerously-skip-permissions")
-	}
+	// Pass through any claude-native flags (e.g. --dangerously-skip-permissions).
+	args = append(args, passthrough...)
 
 	// Initial prompt as positional argument. Skipped when resuming —
 	// the resumed session continues where it left off.
@@ -105,6 +127,18 @@ func buildClaudeArgs(pluginDir, settingsPath, model string, autonomous bool, pro
 	}
 
 	return args
+}
+
+// splitAtDoubleDash splits args at the first "--" separator.
+// Args before -- are returned as first; args after as second.
+// If no -- is present, all args go to first and second is nil.
+func splitAtDoubleDash(args []string) (before, after []string) {
+	for i, a := range args {
+		if a == "--" {
+			return args[:i], args[i+1:]
+		}
+	}
+	return args, nil
 }
 
 // findPluginDir locates the ralph-ban plugin directory by looking for

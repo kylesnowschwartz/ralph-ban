@@ -11,7 +11,38 @@ import (
 )
 
 func main() {
-	// Subcommand routing: ralph-ban init | ralph-ban claude | ralph-ban snapshot | ralph-ban board | ralph-ban [flags]
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Usage: ralph-ban [command] [flags]
+
+Commands:
+  (default)    open the TUI kanban board
+  init         initialize a new project in the current directory
+  claude       start a Claude Code orchestrator session
+  snapshot     export board state as JSON or ASCII
+
+Board flags:
+`)
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, `
+Quick start:
+  ralph-ban init --seed                         # new project with starter cards
+  ralph-ban                                     # open the board
+
+Run the orchestrator:
+  ralph-ban claude                              # batch mode (pauses for human merge approval)
+  ralph-ban claude --stop-mode autonomous       # works until the board is empty
+  ralph-ban claude --resume ""                  # resume last session (interactive picker)
+  ralph-ban claude -- --dangerously-skip-permissions  # skip permission prompts
+
+Snapshots:
+  ralph-ban snapshot                            # JSON to stdout
+  ralph-ban snapshot --format ascii             # ASCII board to stdout
+
+Run 'ralph-ban <command> --help' for all flags.
+`)
+	}
+
+	// Subcommand routing
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "init":
@@ -69,6 +100,10 @@ func runSnapshot(args []string) {
 	format := fs.String("format", "json", "output format: json or ascii")
 	width := fs.Int("width", 120, "terminal width (ascii format only)")
 	height := fs.Int("height", 40, "terminal height (ascii format only)")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: ralph-ban snapshot [flags]\n\nExport the board state to stdout.\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
 	fs.Parse(args)
 
 	dbPath := findDB()
