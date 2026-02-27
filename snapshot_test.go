@@ -232,6 +232,24 @@ func TestWriteSnapshot_ValidJSON(t *testing.T) {
 
 func TestWriteSnapshotASCII_ContainsColumnTitles(t *testing.T) {
 	store := newTestStore(t)
+
+	// Populate every column with one card so none collapse — collapsed columns
+	// render abbreviated titles, not the full title the test expects to find.
+	for _, tc := range []struct {
+		id     string
+		status beadslite.Status
+	}{
+		{"bl-at1", beadslite.StatusBacklog},
+		{"bl-at2", beadslite.StatusTodo},
+		{"bl-at3", beadslite.StatusDoing},
+		{"bl-at4", beadslite.StatusReview},
+		{"bl-at5", beadslite.StatusDone},
+	} {
+		if err := store.CreateIssue(makeIssue(tc.id, "card", tc.status)); err != nil {
+			t.Fatalf("CreateIssue(%s): %v", tc.id, err)
+		}
+	}
+
 	var buf bytes.Buffer
 
 	if err := writeSnapshotASCII(store, 120, 40, &buf); err != nil {

@@ -96,6 +96,23 @@ func TestDumpBoard_CardsInCorrectColumns(t *testing.T) {
 func TestDumpBoard_ViewContainsColumnTitles(t *testing.T) {
 	store := newTestStore(t)
 
+	// Populate every column with one card so none collapse — collapsed columns
+	// render abbreviated titles, not the full title the test expects to find.
+	for _, tc := range []struct {
+		id     string
+		status beadslite.Status
+	}{
+		{"bl-ct1", beadslite.StatusBacklog},
+		{"bl-ct2", beadslite.StatusTodo},
+		{"bl-ct3", beadslite.StatusDoing},
+		{"bl-ct4", beadslite.StatusReview},
+		{"bl-ct5", beadslite.StatusDone},
+	} {
+		if err := store.CreateIssue(makeIssue(tc.id, "card", tc.status)); err != nil {
+			t.Fatalf("CreateIssue(%s): %v", tc.id, err)
+		}
+	}
+
 	var buf bytes.Buffer
 	if err := dumpBoard(store, 120, 40, &buf); err != nil {
 		t.Fatalf("dumpBoard: %v", err)

@@ -63,6 +63,9 @@ type column struct {
 	// wipLimit is the maximum number of cards allowed in this column.
 	// 0 means unlimited (no config entry for this column).
 	wipLimit int
+	// collapsed is true when this column has 0 cards and should render as a
+	// narrow strip. The board sets this during resizeColumns().
+	collapsed bool
 }
 
 func newColumn(idx columnIndex) column {
@@ -163,7 +166,12 @@ func (c *column) Update(msg tea.Msg) tea.Cmd {
 
 // View renders the column with a border that reflects focus state.
 // The header shows "Title (count)" or "Title (count/limit)" when a WIP limit is set.
+// When the column is collapsed (0 cards), it renders as a narrow vertical strip instead.
 func (c *column) View() string {
+	if c.collapsed {
+		return c.collapsedView()
+	}
+
 	count := len(c.list.Items())
 	var header string
 	if c.wipLimit > 0 {
@@ -184,6 +192,53 @@ func (c *column) View() string {
 	view := c.getStyle().Render(c.list.View())
 	c.list.Title = saved
 	return view
+}
+
+// collapsedView renders a narrow vertical strip for an empty column.
+// The strip shows the column title abbreviated to 3 characters, rotated
+// vertically (one character per row) so the column identity is still readable.
+// Width is collapsedColumnWidth (the outer rendered width including border).
+func (c *column) collapsedView() string {
+	title := columnTitles[c.index]
+	// Abbreviate to 3 chars so it fits the narrow strip cleanly.
+	abbrev := title
+	if len([]rune(abbrev)) > 3 {
+		abbrev = string([]rune(abbrev)[:3])
+	}
+
+	// Stack each character on its own row to read vertically.
+	var rows []string
+	for _, ch := range abbrev {
+		rows = append(rows, string(ch))
+	}
+
+	// Pad with spaces to fill available height so the border reaches the bottom.
+	for len(rows) < c.height-2 {
+		rows = append(rows, " ")
+	}
+
+	// Join the character rows with newlines.
+	content := ""
+	for i, row := range rows {
+		if i > 0 {
+			content += "\n"
+		}
+		content += row
+	}
+
+	style := c.getCollapsedStyle()
+	return style.Render(content)
+}
+
+// getCollapsedStyle returns a 1-char-wide bordered style for the collapsed strip.
+// Uses a faint border to distinguish it visually from the focused column border.
+func (c *column) getCollapsedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Border(lipgloss.HiddenBorder()).
+		Padding(0, 0).
+		Width(collapsedInnerWidth).
+		Height(c.height).
+		Align(lipgloss.Center)
 }
 
 // moveRight validates and emits a moveMsg to the next column.

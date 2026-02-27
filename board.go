@@ -406,6 +406,8 @@ func (b *board) loadFromStore() tea.Cmd {
 // When a filter is active, each column's items are narrowed to only matching cards.
 // The undo stack is cleared because external writes may have made recorded
 // operations stale — applying them after a refresh could corrupt state.
+// resizeColumns is called after updating items so collapsed state reflects
+// current card counts (cards added/removed externally via CLI update the layout).
 func (b *board) applyRefresh(msg refreshMsg) {
 	// Undo entries recorded before this refresh may no longer reflect reality
 	// (another session or CLI could have modified the same cards). Clear the
@@ -434,6 +436,10 @@ func (b *board) applyRefresh(msg refreshMsg) {
 			b.cols[i].SetItems(filtered)
 		}
 	}
+
+	// Recompute collapsed state now that card counts may have changed.
+	// A card moved in via CLI triggers a poll, which should expand the column.
+	b.resizeColumns()
 }
 
 // handleMove inserts a card into the target column, shifts focus to follow it,
@@ -959,7 +965,14 @@ func (b *board) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // Layout panning
 
-const minColumnWidth = 24
+const (
+	minColumnWidth = 24
+	// collapsedInnerWidth is the content width of an empty (collapsed) column strip,
+	// before borders. The outer rendered width = collapsedInnerWidth + 2 (border chars).
+	collapsedInnerWidth = 1
+	// collapsedOuterWidth is the total width of a collapsed column including borders.
+	collapsedOuterWidth = collapsedInnerWidth + 2
+)
 
 func (b *board) visibleCount() int {
 	if b.termWidth == 0 {
@@ -977,27 +990,32 @@ func (b *board) visibleCount() int {
 
 // columnAtX maps a mouse X coordinate to the column at that position.
 // Returns false if the coordinate falls outside any visible column.
+// Collapsed columns occupy collapsedOuterWidth; normal columns share the rest.
 func (b *board) columnAtX(x int) (columnIndex, bool) {
 	visible := b.visibleCount()
-	if visible == 0 {
+	if visible == 0 || x < 0 {
 		return 0, false
 	}
-	if x < 0 {
-		return 0, false
+
+	// Walk the visible columns left-to-right, accumulating their rendered widths.
+	// A column's outer width = inner width + 2 (border) for normal columns,
+	// or collapsedOuterWidth for collapsed strips.
+	cursor := 0
+	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
+		idx := b.panOffset + i
+		col := &b.cols[idx]
+		var outerWidth int
+		if col.collapsed {
+			outerWidth = collapsedOuterWidth
+		} else {
+			outerWidth = col.width + 2
+		}
+		if x < cursor+outerWidth {
+			return columnIndex(idx), true
+		}
+		cursor += outerWidth
 	}
-	colWidth := b.termWidth / visible
-	if colWidth == 0 {
-		return 0, false
-	}
-	col := x / colWidth
-	if col < 0 || col >= visible {
-		return 0, false
-	}
-	idx := columnIndex(b.panOffset + col)
-	if idx >= numColumns {
-		return 0, false
-	}
-	return idx, true
+	return 0, false
 }
 
 // updatePan adjusts panOffset so the focused column is visible.
@@ -1021,27 +1039,69 @@ func (b *board) updatePan() {
 	}
 }
 
-// resizeColumns distributes terminal width evenly among visible columns.
+// resizeColumns distributes terminal width among visible columns.
+// Empty (0-card) columns collapse to a narrow strip (collapsedOuterWidth chars).
+// Remaining width is shared evenly among non-empty columns.
+// The focused column is never collapsed, even when it has 0 cards.
 func (b *board) resizeColumns() {
 	visible := b.visibleCount()
 	if visible == 0 {
 		return
 	}
 
-	// Reserve space for top padding, help bar, and position indicator
+	// Reserve space for top padding, help bar, and position indicator.
 	colHeight := b.termHeight - 5
 	if colHeight < 5 {
 		colHeight = 5
 	}
 
-	// Each column's border (visible or hidden) adds 2 chars (left + right).
-	// Subtract that so the total rendered width fits within termWidth.
-	const borderWidth = 2
-	colWidth := (b.termWidth / visible) - borderWidth
-
+	// Decide which visible columns are collapsed.
+	// A column collapses when it has 0 items AND is not focused.
+	type colLayout struct {
+		idx       int
+		collapsed bool
+	}
+	layouts := make([]colLayout, 0, visible)
 	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
 		idx := b.panOffset + i
-		b.cols[idx].SetSize(colWidth, colHeight)
+		isEmpty := len(b.cols[idx].list.Items()) == 0
+		isFocused := columnIndex(idx) == b.focused
+		collapsed := isEmpty && !isFocused
+		layouts = append(layouts, colLayout{idx: idx, collapsed: collapsed})
+	}
+
+	// Count how many columns are non-collapsed to share the remaining width.
+	collapsedCount := 0
+	for _, l := range layouts {
+		if l.collapsed {
+			collapsedCount++
+		}
+	}
+	normalCount := len(layouts) - collapsedCount
+
+	// Collapsed columns each take collapsedOuterWidth. The rest of termWidth
+	// is divided among normal columns. Each normal column's border adds 2 chars.
+	const borderWidth = 2
+	reservedForCollapsed := collapsedCount * collapsedOuterWidth
+	remainingWidth := b.termWidth - reservedForCollapsed
+
+	var normalColWidth int
+	if normalCount > 0 {
+		normalColWidth = (remainingWidth / normalCount) - borderWidth
+		if normalColWidth < 1 {
+			normalColWidth = 1
+		}
+	}
+
+	for _, l := range layouts {
+		col := &b.cols[l.idx]
+		col.collapsed = l.collapsed
+		if l.collapsed {
+			// Pass the outer width minus border as inner width; height is shared.
+			col.SetSize(collapsedInnerWidth, colHeight)
+		} else {
+			col.SetSize(normalColWidth, colHeight)
+		}
 	}
 }
 
