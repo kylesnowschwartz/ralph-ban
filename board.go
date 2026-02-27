@@ -25,6 +25,7 @@ const (
 	viewSearch                      // cross-column search mode
 	viewResolution                  // resolution picker before closing a card
 	viewDepLink                     // dep-link picker: link focused card to a blocker
+	viewZoom                        // ephemeral peek overlay; any key dismisses
 )
 
 // board is the root tea.Model for the kanban TUI.
@@ -43,6 +44,7 @@ type board struct {
 	detail       *detail
 	resolution   *resolutionPicker
 	depLinker    *depLinker
+	zoom         *zoomState // non-nil only while viewZoom is active
 
 	// Undo stack for moves, priority changes, edits, and deletes.
 	// Capped at maxUndoStack entries; oldest entry is dropped when full.
@@ -159,6 +161,13 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Overlay-specific routing
 	switch b.view {
+	case viewZoom:
+		// Any keypress (including a second z) dismisses the peek.
+		if _, ok := msg.(tea.KeyMsg); ok {
+			b.view = viewBoard
+			b.zoom = nil
+		}
+		return b, nil
 	case viewDetail:
 		return b.updateDetail(msg)
 	case viewForm:
@@ -241,6 +250,10 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.openDetail()
 			return b, nil
 
+		case key.Matches(msg, keys.Zoom):
+			b.openZoom()
+			return b, nil
+
 		case key.Matches(msg, keys.Undo):
 			return b, b.undoLast()
 
@@ -301,6 +314,10 @@ func (b *board) View() string {
 	case viewDepLink:
 		if b.depLinker != nil {
 			return b.depLinker.View()
+		}
+	case viewZoom:
+		if b.zoom != nil {
+			return b.zoomView()
 		}
 	}
 
@@ -1203,5 +1220,141 @@ func (b *board) applyActiveFilter() {
 		}
 		b.cols[i].SetItems(applyFilterToItems(items, b.filter))
 	}
+}
+
+// zoomState holds the data needed to render the zoom peek overlay.
+// Dependencies are resolved at open time so zoomView() is a pure renderer.
+type zoomState struct {
+	issue     *beadslite.Issue
+	blockedBy []depEntry
+	blocks    []depEntry
+}
+
+// openZoom captures the focused card and its resolved dependencies, then
+// enters viewZoom. Does nothing if no card is selected. Unlike openDetail,
+// openZoom does not mutate navigation state — it is a transient peek.
+func (b *board) openZoom() {
+	cd, ok := b.cols[b.focused].SelectedCard()
+	if !ok {
+		return
+	}
+	b.zoom = &zoomState{
+		issue:     cd.issue,
+		blockedBy: b.resolveBlockedBy(cd.issue.ID),
+		blocks:    b.resolveBlocks(cd.issue.ID),
+	}
+	b.view = viewZoom
+}
+
+// zoomView renders the peek overlay. The column headers remain visible at the
+// top of the screen — the zoom panel is placed below them, occupying most of
+// the remaining height. Any key press dismisses it (handled in Update).
+func (b *board) zoomView() string {
+	// Render the normal board view as the background so column headers stay visible.
+	// Temporarily switch view to viewBoard so boardView() renders columns, not zoom.
+	b.view = viewBoard
+	boardBg := b.View()
+	b.view = viewZoom
+
+	i := b.zoom.issue
+
+	labelStyle := lipgloss.NewStyle().Bold(true).Width(10)
+	faintStyle := lipgloss.NewStyle().Faint(true)
+
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("212")).
+		Render(i.Title)
+
+	desc := faintStyle.Render("(no description)")
+	if i.Description != "" {
+		desc = lipgloss.NewStyle().Width(56).Render(i.Description)
+	}
+
+	fields := lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		"",
+		desc,
+		"",
+		labelStyle.Render("ID")+"  "+i.ID,
+		labelStyle.Render("Status")+"  "+string(i.Status),
+		labelStyle.Render("Priority")+"  "+fmt.Sprintf("P%d", i.Priority),
+		labelStyle.Render("Type")+"  "+string(i.Type),
+	)
+
+	if i.AssignedTo != "" {
+		fields = lipgloss.JoinVertical(lipgloss.Left,
+			fields,
+			labelStyle.Render("Assigned")+"  "+i.AssignedTo,
+		)
+	}
+
+	if len(b.zoom.blockedBy) > 0 {
+		fields = lipgloss.JoinVertical(lipgloss.Left,
+			fields,
+			"",
+			faintStyle.Render("Blocked by"),
+			formatDeps(b.zoom.blockedBy),
+		)
+	}
+	if len(b.zoom.blocks) > 0 {
+		fields = lipgloss.JoinVertical(lipgloss.Left,
+			fields,
+			"",
+			faintStyle.Render("Blocks"),
+			formatDeps(b.zoom.blocks),
+		)
+	}
+
+	fields = lipgloss.JoinVertical(lipgloss.Left,
+		fields,
+		"",
+		faintStyle.Render("any key: dismiss"),
+	)
+
+	// Width is most of the terminal but not all, so the board edges remain visible.
+	panelWidth := b.termWidth * 3 / 4
+	if panelWidth < 40 {
+		panelWidth = 40
+	}
+	if panelWidth > b.termWidth-4 {
+		panelWidth = b.termWidth - 4
+	}
+
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("212")).
+		Padding(1, 2).
+		Width(panelWidth - 6) // subtract border (2) + padding (2*2)
+
+	rendered := panelStyle.Render(fields)
+
+	// Count lines in the background view to measure the header height.
+	// Place the panel below the column headers (roughly 2 lines) so headers stay visible.
+	bgLines := strings.Split(boardBg, "\n")
+	headerLines := 2 // top padding + column headings row
+	if len(bgLines) > headerLines {
+		// Build composite: header lines from background, then centered panel below.
+		header := strings.Join(bgLines[:headerLines], "\n")
+
+		// Remaining height available for the panel.
+		remainingHeight := b.termHeight - headerLines
+		if remainingHeight < 5 {
+			remainingHeight = 5
+		}
+
+		panelPlaced := lipgloss.Place(b.termWidth, remainingHeight,
+			lipgloss.Center, lipgloss.Center,
+			rendered,
+		)
+
+		return header + "\n" + panelPlaced
+	}
+
+	// Fallback: center the panel over the full screen.
+	return lipgloss.Place(b.termWidth, b.termHeight,
+		lipgloss.Center, lipgloss.Center,
+		rendered,
+	)
 }
 
