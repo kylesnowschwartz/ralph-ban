@@ -24,7 +24,7 @@ func runClaude(args []string) {
 	model := fs.String("model", "", "override the agent's default model (opus, sonnet, haiku)")
 	prompt := fs.String("prompt", "", "initial prompt (also accepted as positional arg)")
 	resume := fs.String("resume", "", "resume a session by ID, or empty string for picker")
-	stopMode := fs.String("stop-mode", "", "stop hook: batch or autonomous")
+	stopMode := fs.String("stop-mode", "", "stop hook mode: batch (default) or autonomous")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: ralph-ban claude [flags] [prompt] [-- claude-flags...]
 
@@ -66,17 +66,16 @@ Examples:
 	// for workers in worktrees even though their cwd differs from the project root.
 	settingsPath := filepath.Join(pluginDir, ".claude-plugin", "settings.json")
 
-	// Write stop_mode to config before launching so the stop hook sees it immediately.
-	if *stopMode != "" {
-		if err := setConfigField(".ralph-ban", "stop_mode", *stopMode); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not write stop_mode to config: %v\n", err)
-		}
-	}
-
 	claudeArgs := buildClaudeArgs(pluginDir, settingsPath, *model, *prompt, *resume, passthrough)
 
 	// Set agent name so hooks can identify this session.
 	os.Setenv("CLAUDE_AGENT_NAME", *name)
+
+	// Set stop mode as env var so hooks see it for this session only.
+	// Precedence: flag > env > config file > "batch" default.
+	if *stopMode != "" {
+		os.Setenv("RALPH_BAN_STOP_MODE", *stopMode)
+	}
 
 	// Set BL_ROOT so workers in worktrees resolve the database from the project root.
 	cwd, _ := os.Getwd()
