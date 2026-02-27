@@ -27,6 +27,7 @@ type keyMap struct {
 	Suspend      key.Binding
 	Back         key.Binding
 	CtrlClick    key.Binding // display-only: mouse events bypass key bindings
+	LayoutToggle key.Binding // switch between horizontal and vertical board layout
 }
 
 var keys = keyMap{
@@ -125,16 +126,20 @@ var keys = keyMap{
 	CtrlClick: key.NewBinding(
 		key.WithHelp("ctrl+click", "move to column"),
 	),
+	LayoutToggle: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "toggle layout"),
+	),
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.New, k.Edit, k.MoveRight, k.MoveLeft, k.Search, k.FilterNext, k.Help}
+	return []key.Binding{k.New, k.Edit, k.MoveRight, k.MoveLeft, k.Search, k.FilterNext, k.LayoutToggle, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.New, k.Edit, k.Delete, k.MoveRight, k.MoveLeft, k.Undo, k.Detail, k.Zoom, k.PriorityUp, k.PriorityDown},
-		{k.Search, k.FilterNext, k.FilterPrev, k.BlockedBy, k.Blocks, k.Help, k.Quit, k.Suspend, k.Back, k.CtrlClick},
+		{k.Search, k.FilterNext, k.FilterPrev, k.BlockedBy, k.Blocks, k.LayoutToggle, k.Help, k.Quit, k.Suspend, k.Back, k.CtrlClick},
 	}
 }

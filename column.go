@@ -241,6 +241,98 @@ func (c *column) getCollapsedStyle() lipgloss.Style {
 		Align(lipgloss.Center)
 }
 
+
+// ViewVertical renders the column as a full-width horizontal band for vertical layout mode.
+// Cards are shown as compact single-line rows so all columns stack neatly top-to-bottom.
+// The focused column gets a rounded border; others get a hidden border for alignment.
+func (c *column) ViewVertical(termWidth int) string {
+	count := len(c.list.Items())
+	var header string
+	if c.wipLimit > 0 {
+		header = fmt.Sprintf("%s (%d/%d)", columnTitles[c.index], count, c.wipLimit)
+	} else {
+		header = fmt.Sprintf("%s (%d)", columnTitles[c.index], count)
+	}
+
+	// Style the header line — focused column gets a highlighted title.
+	var headerStyle lipgloss.Style
+	if c.focus {
+		headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("170"))
+	} else {
+		headerStyle = lipgloss.NewStyle().Faint(true)
+	}
+	renderedHeader := headerStyle.Render(header)
+
+	// Render each card as a compact single line: "  > title [P0]" or "    title [P1]"
+	items := c.list.Items()
+	selectedIdx := c.list.Index()
+	var cardLines []string
+	for i, item := range items {
+		cd, ok := item.(card)
+		if !ok {
+			continue
+		}
+
+		// Truncate title to leave room for priority tag and cursor prefix.
+		// termWidth - border(2) - padding(2) - cursor(2) - priority(5) - spaces(2)
+		maxTitle := termWidth - 13
+		if maxTitle < 10 {
+			maxTitle = 10
+		}
+		title := cd.issue.Title
+		if len([]rune(title)) > maxTitle {
+			title = string([]rune(title)[:maxTitle-1]) + "…"
+		}
+
+		priorityTag := fmt.Sprintf("[P%d]", cd.issue.Priority)
+		line := fmt.Sprintf("  %-*s %s", maxTitle, title, priorityTag)
+
+		var lineStyle lipgloss.Style
+		if c.focus && i == selectedIdx {
+			// Focused selected card: highlighted
+			lineStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("170")).
+				Bold(true)
+			line = "> " + line[2:] // replace leading spaces with cursor
+		} else if cd.blocked {
+			lineStyle = lipgloss.NewStyle().Faint(true)
+		} else {
+			lineStyle = lipgloss.NewStyle()
+		}
+
+		cardLines = append(cardLines, lineStyle.Render(line))
+	}
+
+	if len(cardLines) == 0 {
+		cardLines = append(cardLines, lipgloss.NewStyle().Faint(true).Render("  (empty)"))
+	}
+
+	body := lipgloss.JoinVertical(lipgloss.Left, append([]string{renderedHeader}, cardLines...)...)
+
+	// Apply border: focused uses rounded, blurred uses hidden (same width for alignment).
+	const borderWidth = 2
+	innerWidth := termWidth - borderWidth
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	var borderStyle lipgloss.Style
+	if c.focus {
+		borderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Width(innerWidth)
+	} else {
+		borderStyle = lipgloss.NewStyle().
+			Border(lipgloss.HiddenBorder()).
+			Width(innerWidth)
+	}
+
+	return borderStyle.Render(body)
+}
+
 // moveRight validates and emits a moveMsg to the next column.
 // The actual list mutation happens in board.handleMove for atomicity.
 func (c *column) moveRight() tea.Cmd {

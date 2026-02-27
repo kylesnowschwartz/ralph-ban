@@ -65,9 +65,10 @@ type board struct {
 	allBlockedIDs map[string]bool
 
 	// Layout panning
-	termWidth  int
-	termHeight int
-	panOffset  int // index of first visible column
+	termWidth      int
+	termHeight     int
+	panOffset      int  // index of first visible column (horizontal mode)
+	verticalLayout bool // true = columns stacked top-to-bottom, false = side-by-side (default)
 
 	// wip holds per-column WIP limits loaded from .ralph-ban/config.json.
 	// Zero limit for a column means unlimited.
@@ -281,6 +282,12 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.cycleFilter(-1)
 			return b, nil
 
+		case key.Matches(msg, keys.LayoutToggle):
+			b.verticalLayout = !b.verticalLayout
+			b.updatePan()
+			b.resizeColumns()
+			return b, nil
+
 		case key.Matches(msg, keys.Back):
 			if b.filter.field != filterNone {
 				b.clearFilter()
@@ -321,18 +328,23 @@ func (b *board) View() string {
 		}
 	}
 
-	// Build visible columns based on panning
-	visible := b.visibleCount()
-	var views []string
-	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
-		idx := b.panOffset + i
-		views = append(views, b.cols[idx].View())
+	var columnsView string
+	var indicator string
+
+	if b.verticalLayout {
+		columnsView = b.viewVertical()
+		indicator = b.positionIndicatorVertical()
+	} else {
+		// Horizontal: columns side by side, panning horizontally.
+		visible := b.visibleCount()
+		var views []string
+		for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
+			idx := b.panOffset + i
+			views = append(views, b.cols[idx].View())
+		}
+		columnsView = lipgloss.JoinHorizontal(lipgloss.Top, views...)
+		indicator = b.positionIndicator()
 	}
-
-	columnsView := lipgloss.JoinHorizontal(lipgloss.Top, views...)
-
-	// Position indicator
-	indicator := b.positionIndicator()
 
 	// Error display
 	var errView string
@@ -362,6 +374,19 @@ func (b *board) View() string {
 	)
 
 	return lipgloss.NewStyle().MaxWidth(b.termWidth).Render(full)
+}
+
+// viewVertical renders columns stacked top-to-bottom as full-width horizontal bands.
+// Only a window of columns that fit the terminal height are shown (similar to panOffset
+// but vertical). The focused column is always visible.
+func (b *board) viewVertical() string {
+	visible := b.visibleCountVertical()
+	var bands []string
+	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
+		idx := b.panOffset + i
+		bands = append(bands, b.cols[idx].ViewVertical(b.termWidth))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, bands...)
 }
 
 // findCardIndex returns the index of the card with the given ID in items, or -1.
@@ -974,11 +999,36 @@ const (
 	collapsedOuterWidth = collapsedInnerWidth + 2
 )
 
+// minColumnBandHeight is the minimum height (in terminal rows) for one vertical-mode band.
+// Each band has a header line plus at least a few card lines.
+const minColumnBandHeight = 4
+
 func (b *board) visibleCount() int {
 	if b.termWidth == 0 {
 		return int(numColumns)
 	}
 	count := b.termWidth / minColumnWidth
+	if count < 1 {
+		count = 1
+	}
+	if count > int(numColumns) {
+		count = int(numColumns)
+	}
+	return count
+}
+
+// visibleCountVertical returns how many column bands fit vertically.
+// Reserves space for the breathing-room line, indicator, error, and footer.
+func (b *board) visibleCountVertical() int {
+	if b.termHeight == 0 {
+		return int(numColumns)
+	}
+	// Reserve: 1 (top padding) + 1 (indicator) + 1 (footer) = 3 lines overhead
+	available := b.termHeight - 3
+	if available < minColumnBandHeight {
+		available = minColumnBandHeight
+	}
+	count := available / minColumnBandHeight
 	if count < 1 {
 		count = 1
 	}
@@ -1019,8 +1069,15 @@ func (b *board) columnAtX(x int) (columnIndex, bool) {
 }
 
 // updatePan adjusts panOffset so the focused column is visible.
+// Works for both horizontal and vertical layout — panOffset is always an index
+// into the column array; the meaning of "window" changes with orientation.
 func (b *board) updatePan() {
-	visible := b.visibleCount()
+	var visible int
+	if b.verticalLayout {
+		visible = b.visibleCountVertical()
+	} else {
+		visible = b.visibleCount()
+	}
 	focusIdx := int(b.focused)
 
 	if focusIdx < b.panOffset {
@@ -1039,11 +1096,16 @@ func (b *board) updatePan() {
 	}
 }
 
-// resizeColumns distributes terminal width among visible columns.
-// Empty (0-card) columns collapse to a narrow strip (collapsedOuterWidth chars).
-// Remaining width is shared evenly among non-empty columns.
-// The focused column is never collapsed, even when it has 0 cards.
+// resizeColumns distributes terminal dimensions among visible columns.
+// Horizontal: empty columns collapse to collapsedOuterWidth strips; remaining width
+// is shared among non-empty columns. The focused column never collapses.
+// Vertical: each band gets the full terminal width; height is divided among visible bands.
 func (b *board) resizeColumns() {
+	if b.verticalLayout {
+		b.resizeColumnsVertical()
+		return
+	}
+
 	visible := b.visibleCount()
 	if visible == 0 {
 		return
@@ -1105,6 +1167,35 @@ func (b *board) resizeColumns() {
 	}
 }
 
+// resizeColumnsVertical sets dimensions for vertical-mode bands.
+// Each band gets the full terminal width and an equal share of available height.
+func (b *board) resizeColumnsVertical() {
+	visible := b.visibleCountVertical()
+	if visible == 0 {
+		return
+	}
+
+	// Reserve: 1 (top padding) + 1 (indicator) + 1 (footer) = 3 rows overhead
+	available := b.termHeight - 3
+	if available < minColumnBandHeight {
+		available = minColumnBandHeight
+	}
+
+	bandHeight := available / visible
+	if bandHeight < minColumnBandHeight {
+		bandHeight = minColumnBandHeight
+	}
+
+	// Full terminal width minus border (2) for each band.
+	const borderWidth = 2
+	bandWidth := b.termWidth - borderWidth
+
+	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
+		idx := b.panOffset + i
+		b.cols[idx].SetSize(bandWidth, bandHeight)
+	}
+}
+
 // positionIndicator shows which columns are visible: [< Backlog | *To Do* | Doing >]
 func (b *board) positionIndicator() string {
 	visible := b.visibleCount()
@@ -1130,6 +1221,51 @@ func (b *board) positionIndicator() string {
 
 	if b.panOffset+visible < int(numColumns) {
 		parts = append(parts, ">")
+	} else {
+		parts = append(parts, " ")
+	}
+
+	indicator := ""
+	for i, p := range parts {
+		if i > 0 && i < len(parts)-1 {
+			indicator += " | "
+		}
+		indicator += p
+	}
+
+	return lipgloss.NewStyle().
+		Faint(true).
+		Width(b.termWidth).
+		Align(lipgloss.Center).
+		Render("[" + indicator + "]")
+}
+
+// positionIndicatorVertical shows which column bands are visible in vertical mode.
+// Format: [^ Backlog | *To Do* | Doing v]
+func (b *board) positionIndicatorVertical() string {
+	visible := b.visibleCountVertical()
+	if visible >= int(numColumns) {
+		return "" // all bands visible, no indicator needed
+	}
+
+	var parts []string
+	if b.panOffset > 0 {
+		parts = append(parts, "^")
+	} else {
+		parts = append(parts, " ")
+	}
+
+	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
+		idx := b.panOffset + i
+		name := columnTitles[idx]
+		if columnIndex(idx) == b.focused {
+			name = "*" + name + "*"
+		}
+		parts = append(parts, name)
+	}
+
+	if b.panOffset+visible < int(numColumns) {
+		parts = append(parts, "v")
 	} else {
 		parts = append(parts, " ")
 	}
