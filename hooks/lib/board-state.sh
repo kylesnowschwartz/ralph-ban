@@ -108,10 +108,9 @@ describe_changes() {
   local new_state="$2"
 
   # Parse JSONL into TSV (id\tstatus\ttitle) with a single jq -s per side.
-  local tmp_new tmp_old
+  local tmp_new="" tmp_old=""
   tmp_new=$(mktemp)
   tmp_old=$(mktemp)
-  trap 'rm -f "$tmp_new" "$tmp_old"' RETURN
 
   echo "$new_state" | jq -s -r '.[] | [.id, .status, .title] | @tsv' 2>/dev/null >"$tmp_new"
   echo "$old_state" | jq -s -r '.[] | [.id, .status, .title] | @tsv' 2>/dev/null >"$tmp_old"
@@ -137,6 +136,8 @@ describe_changes() {
       echo "Card '${old_title}' removed"
     fi
   done <"$tmp_old"
+
+  rm -f "$tmp_new" "$tmp_old"
 }
 
 # count_active returns the number of items in todo or doing columns.
@@ -164,6 +165,13 @@ count_review() {
   fi
   echo "$state" | jq -r 'select(.status == "review")' | jq -s 'length'
 }
+
+# --- File locking ---
+# macOS doesn't ship flock. No-op shim so the existing
+# (flock -x 200; ...) 200>lockfile pattern doesn't crash.
+if ! command -v flock &>/dev/null; then
+  flock() { :; }
+fi
 
 # --- Legacy bounce tracking (used by cb_record_success cleanup path) ---
 
