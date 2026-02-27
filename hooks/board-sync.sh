@@ -148,40 +148,57 @@ record_card_progress
 stall_warnings=""
 stall_warnings=$(detect_stalled_cards)
 
-# Build the system message from available parts
-parts=()
+# Build separate output for agent context (everything) and user display (actionable only).
+# The agent needs dispatch nudges, review queue depth, and board diffs for orchestration.
+# The user only needs actionable warnings — circuit breaker, stalls, rate limits.
+# Board diffs and dispatch nudges are internal guidance that confuse the user when surfaced.
+agent_parts=()
+user_parts=()
+
 if [ -n "$rate_limit_warning" ]; then
-  parts+=("$rate_limit_warning")
+  agent_parts+=("$rate_limit_warning")
+  user_parts+=("$rate_limit_warning")
 fi
 if [ -n "$breaker_warning" ]; then
-  parts+=("$breaker_warning")
+  agent_parts+=("$breaker_warning")
+  user_parts+=("$breaker_warning")
 fi
 if [ -n "$half_open_nudge" ]; then
-  parts+=("$half_open_nudge")
+  agent_parts+=("$half_open_nudge")
+  user_parts+=("$half_open_nudge")
 fi
 if [ -n "$changes" ]; then
-  parts+=("Board changes since last prompt:")
-  parts+=("$changes")
+  agent_parts+=("Board changes since last prompt:")
+  agent_parts+=("$changes")
 fi
 if [ -n "$pause_notice" ]; then
-  parts+=("$pause_notice")
+  agent_parts+=("$pause_notice")
+  user_parts+=("$pause_notice")
 fi
 if [ -n "$dispatch_nudge" ]; then
-  parts+=("$dispatch_nudge")
+  agent_parts+=("$dispatch_nudge")
 fi
 if [ -n "$review_nudge" ]; then
-  parts+=("$review_nudge")
+  agent_parts+=("$review_nudge")
 fi
 if [ -n "$stall_warnings" ]; then
-  parts+=("STALL DETECTED:")
-  parts+=("$stall_warnings")
+  agent_parts+=("STALL DETECTED:")
+  agent_parts+=("$stall_warnings")
+  user_parts+=("STALL DETECTED:")
+  user_parts+=("$stall_warnings")
 fi
-if [ ${#parts[@]} -gt 0 ]; then
-  # User-visible summary: just the parts, no orchestration framing.
-  user_message=$(printf '%s\n' "${parts[@]}")
-  # Agent context: prepend lifecycle reminder.
-  parts=("Orchestration checkpoint: board sync follows." "${parts[@]}")
-  agent_message=$(printf '%s\n' "${parts[@]}")
+
+if [ ${#agent_parts[@]} -gt 0 ]; then
+  # Agent context: full orchestration state with lifecycle reminder.
+  agent_parts=("Orchestration checkpoint: board sync follows." "${agent_parts[@]}")
+  agent_message=$(printf '%s\n' "${agent_parts[@]}")
+
+  # User-visible: only actionable warnings. Empty string suppresses systemMessage.
+  user_message=""
+  if [ ${#user_parts[@]} -gt 0 ]; then
+    user_message=$(printf '%s\n' "${user_parts[@]}")
+  fi
+
   jq -n --arg ctx "$agent_message" --arg msg "$user_message" \
     '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $ctx}, systemMessage: $msg}'
 fi

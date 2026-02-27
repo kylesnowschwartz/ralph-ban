@@ -59,7 +59,7 @@ Four hooks inject board state and enforce workflow gates. All source `hooks/lib/
 | Event | Agent context | User-visible |
 |-------|--------------|--------------|
 | SessionStart | `additionalContext` (board summary) | `systemMessage` (board summary) |
-| UserPromptSubmit | `additionalContext` (checkpoint + diffs) | `systemMessage` (diffs only) |
+| UserPromptSubmit | `additionalContext` (full: diffs, nudges, breaker, stalls) | `systemMessage` (actionable only: breaker, stalls, rate limit) |
 | Stop | `systemMessage` (workflow guidance) | `reason` (short block reason) |
 | PreCompact | Both channels get full state (compression destroys prior context) |
 
