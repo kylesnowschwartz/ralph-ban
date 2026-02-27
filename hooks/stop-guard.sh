@@ -9,6 +9,7 @@
 #   2. Setup + read stdin
 #   3. Uncommitted changes gate (always blocks, regardless of mode)
 #   4. Tool availability
+#   4.5. Worker activity gate (pauses quietly while workers run)
 #   5. Anti-loop guard (mode-aware: batch exits, autonomous falls through)
 #   6. Stall detection (safety valve: allows exit after MAX_STALLS)
 #   7. Block decision + guidance message
@@ -89,6 +90,20 @@ fi
 
 # --- Phase 4: Tool availability ---
 require_bl
+
+# --- Phase 4.5: Worker activity gate ---
+# If the orchestrator has active workers running (marker present and fresh),
+# allow the stop hook to pass through silently. Workers are completing their
+# turns and will re-engage the orchestrator when done. Firing board-state
+# guidance while the orchestrator can't act on it creates noise without value.
+# Note: this comes AFTER the uncommitted changes gate — a dirty working tree
+# still blocks regardless of whether workers are running.
+if check_worker_marker; then
+  jq -n '{
+    systemMessage: "Workers are running. Pausing until they complete."
+  }'
+  exit 0
+fi
 
 # --- Phase 5: Anti-loop guard (mode-aware) ---
 # stop_hook_active means the hook already blocked once in this stop cycle

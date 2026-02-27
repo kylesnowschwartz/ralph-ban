@@ -45,6 +45,9 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
       name: "<card-id>",
       prompt: "Your card: <id> — <title>. <description>.
               Modify only: <file1>, <file2>, ...")
+  Before spawning any worker, write the activity marker so the stop hook
+  pauses cleanly while workers run:
+    touch .ralph-ban/.workers-active
   Do NOT pre-claim or pre-move cards. The worker template handles its own
   lifecycle: unclaim -> claim --agent ${CLAUDE_AGENT_NAME:-worker} -> status doing -> implement ->
   status review. The orchestrator dispatches; the worker owns the card.
@@ -57,6 +60,9 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
   autonomous mode: Dispatch immediately after assessment. Report what you're doing but don't wait for approval. "Dispatching N workers for: ..."
 
 PHASE 3 - REVIEW: Examine each worker's changes yourself
+  Once all workers have completed, clear the activity marker so the stop hook
+  resumes normal board-state evaluation:
+    rm -f .ralph-ban/.workers-active
   When a worker completes, its Task result includes the worktree branch name
   (auto-generated, e.g. "worktree/agent-a1b2c3d4").
 
