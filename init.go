@@ -18,8 +18,9 @@ const (
 
 // defaultConfig is written to .ralph-ban/config.json on init.
 // WIP limits of 0 mean unlimited — these are sensible starting suggestions,
-// not enforced policy.
-var defaultConfig = wipConfig{
+// not enforced policy. ProjectCommands is left empty so new projects supply
+// their own build/test/lint commands without overriding language-specific defaults.
+var defaultConfig = boardConfig{
 	WIPLimits: map[string]int{
 		"doing":  3,
 		"review": 2,

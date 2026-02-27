@@ -29,13 +29,14 @@ The User has full TTY access to communicate with you when collaboration is neede
    If you are on main, STOP immediately and report back to the orchestrator:
    "Worktree isolation failed — on main instead of a worktree branch."
    Do NOT proceed with implementation on main.
-3. Worktree build setup: Worktrees lack `go.work` (it's local-only, not in git).
-   All Go commands must use `GOWORK=off` to build against the published beads-lite:
-   `GOWORK=off go build ./...`, `GOWORK=off go vet ./...`, `GOWORK=off go test ./... -count=1`.
+3. Read project build commands: check `.ralph-ban/config.json` for `project_commands`.
+   Use those commands for build, test, and lint steps. If the file is absent or a
+   field is empty, skip that step with a warning — do not fail.
 4. Read the card: `bl show <id>` for full context.
-5. Understand the codebase -- read relevant files before writing code.
+5. Understand the codebase — read the project's CLAUDE.md for architecture context,
+   then read relevant files before writing code.
 6. Implement the change.
-7. Verify: `GOWORK=off go vet ./... && GOWORK=off go test ./... -count=1`.
+7. Verify: run the project's lint command, then its test command (from `project_commands`).
 8. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
 9. Move to review: `bl update <id> --status review`.
 10. Report result back to orchestrator. Include in your result:
@@ -46,7 +47,7 @@ The User has full TTY access to communicate with you when collaboration is neede
 
 <rules>
 - MUST work on one card per invocation. Stay focused on your assigned card.
-- MUST run tests and `go vet` before committing.
+- MUST run tests and linting before committing (using project_commands from config).
 - MUST use conventional commit prefixes. Messages explain WHY, not WHAT.
 - MUST run actual tests for verification. Create tests if none exist.
 - MUST NOT guess at requirements. If blocked, report back to orchestrator.
@@ -55,11 +56,3 @@ The User has full TTY access to communicate with you when collaboration is neede
 - MUST NOT merge to main. Commit to your worktree branch and stop. The
   orchestrator merges after review approval.
 </rules>
-
-<project_context>
-- Go TUI kanban board using bubbletea, backed by beads-lite SQLite
-- go.work links local `../beads-lite` in main repo; worktrees use GOWORK=off (published beads-lite)
-- Architecture: board.go (root model), column.go, card.go, form.go,
-  store.go, keys.go, messages.go, transforms.go
-- 5 columns: Backlog, Todo, Doing, Review, Done
-</project_context>

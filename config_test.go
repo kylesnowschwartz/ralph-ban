@@ -9,10 +9,10 @@ import (
 	beadslite "github.com/kylesnowschwartz/beads-lite"
 )
 
-// --- wipConfig.wipLimit ---
+// --- boardConfig.wipLimit ---
 
 func TestWIPLimit_NoConfig(t *testing.T) {
-	cfg := wipConfig{}
+	cfg := boardConfig{}
 	for i := columnIndex(0); i < numColumns; i++ {
 		if got := cfg.wipLimit(i); got != 0 {
 			t.Errorf("wipLimit(%d) = %d, want 0 (no config)", i, got)
@@ -21,7 +21,7 @@ func TestWIPLimit_NoConfig(t *testing.T) {
 }
 
 func TestWIPLimit_ConfiguredColumns(t *testing.T) {
-	cfg := wipConfig{
+	cfg := boardConfig{
 		WIPLimits: map[string]int{
 			"doing":  3,
 			"review": 2,
@@ -111,9 +111,77 @@ func TestLoadConfig_EmptyLimits(t *testing.T) {
 	}
 }
 
+// --- ProjectCommands ---
+
+func TestProjectCommands_EmptyByDefault(t *testing.T) {
+	// A config with no project_commands field should give zero-value commands.
+	dir := t.TempDir()
+	content := `{"wip_limits": {"doing": 3}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := loadConfig(dir)
+	if cfg.ProjectCommands.Build != "" {
+		t.Errorf("Build = %q, want empty", cfg.ProjectCommands.Build)
+	}
+	if cfg.ProjectCommands.Test != "" {
+		t.Errorf("Test = %q, want empty", cfg.ProjectCommands.Test)
+	}
+	if cfg.ProjectCommands.Lint != "" {
+		t.Errorf("Lint = %q, want empty", cfg.ProjectCommands.Lint)
+	}
+}
+
+func TestProjectCommands_LoadedFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := `{
+		"wip_limits": {"doing": 3},
+		"project_commands": {
+			"build": "GOWORK=off go build ./...",
+			"test":  "GOWORK=off go test ./... -count=1",
+			"lint":  "GOWORK=off go vet ./..."
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := loadConfig(dir)
+	if got := cfg.ProjectCommands.Build; got != "GOWORK=off go build ./..." {
+		t.Errorf("Build = %q, want %q", got, "GOWORK=off go build ./...")
+	}
+	if got := cfg.ProjectCommands.Test; got != "GOWORK=off go test ./... -count=1" {
+		t.Errorf("Test = %q, want %q", got, "GOWORK=off go test ./... -count=1")
+	}
+	if got := cfg.ProjectCommands.Lint; got != "GOWORK=off go vet ./..." {
+		t.Errorf("Lint = %q, want %q", got, "GOWORK=off go vet ./...")
+	}
+}
+
+func TestProjectCommands_PartialConfig(t *testing.T) {
+	// Only build specified — test and lint remain empty (worker skips them).
+	dir := t.TempDir()
+	content := `{"project_commands": {"build": "make build"}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := loadConfig(dir)
+	if got := cfg.ProjectCommands.Build; got != "make build" {
+		t.Errorf("Build = %q, want %q", got, "make build")
+	}
+	if cfg.ProjectCommands.Test != "" {
+		t.Errorf("Test = %q, want empty when not specified", cfg.ProjectCommands.Test)
+	}
+	if cfg.ProjectCommands.Lint != "" {
+		t.Errorf("Lint = %q, want empty when not specified", cfg.ProjectCommands.Lint)
+	}
+}
+
 // --- handleMove WIP enforcement ---
 
-func newTestBoardWithWIP(t *testing.T, cfg wipConfig) *board {
+func newTestBoardWithWIP(t *testing.T, cfg boardConfig) *board {
 	t.Helper()
 	store := newTestStore(t)
 	b := newBoard(store)
@@ -130,7 +198,7 @@ func newTestBoardWithWIP(t *testing.T, cfg wipConfig) *board {
 }
 
 func TestHandleMove_BlockedByWIPLimit(t *testing.T) {
-	cfg := wipConfig{WIPLimits: map[string]int{"doing": 1}}
+	cfg := boardConfig{WIPLimits: map[string]int{"doing": 1}}
 	b := newTestBoardWithWIP(t, cfg)
 
 	// Fill Doing to capacity (1 card).
@@ -164,7 +232,7 @@ func TestHandleMove_BlockedByWIPLimit(t *testing.T) {
 }
 
 func TestHandleMove_AllowedWhenUnderWIPLimit(t *testing.T) {
-	cfg := wipConfig{WIPLimits: map[string]int{"doing": 2}}
+	cfg := boardConfig{WIPLimits: map[string]int{"doing": 2}}
 	b := newTestBoardWithWIP(t, cfg)
 
 	// Doing has 1 card; limit is 2 — move should succeed.

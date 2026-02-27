@@ -69,7 +69,7 @@ type board struct {
 
 	// wip holds per-column WIP limits loaded from .ralph-ban/config.json.
 	// Zero limit for a column means unlimited.
-	wip wipConfig
+	wip boardConfig
 }
 
 func newBoard(store *beadslite.Store) *board {

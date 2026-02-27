@@ -24,7 +24,7 @@ func TestWriteDefaultConfig_CreatesFile(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 
-	var cfg wipConfig
+	var cfg boardConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestDefaultConfig_RoundTrip(t *testing.T) {
 		t.Fatalf("MarshalIndent: %v", err)
 	}
 
-	var cfg wipConfig
+	var cfg boardConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
