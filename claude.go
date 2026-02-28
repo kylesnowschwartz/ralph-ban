@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -68,8 +69,8 @@ Examples:
 	}
 
 	// Set BL_ROOT so workers in worktrees resolve the database from the project root.
-	cwd, _ := os.Getwd()
-	os.Setenv("BL_ROOT", cwd)
+	// Git traversal handles subdirectory invocation; falls back to cwd for non-git dirs.
+	os.Setenv("BL_ROOT", projectRoot())
 
 	// Replace this process with claude for clean signal handling.
 	if err := syscall.Exec(claudeBin, append([]string{"claude"}, claudeArgs...), os.Environ()); err != nil {
@@ -126,6 +127,17 @@ func splitAtDoubleDash(args []string) (before, after []string) {
 		}
 	}
 	return args, nil
+}
+
+// projectRoot returns the git repository root, falling back to cwd.
+// Mirrors the same logic hooks use in lib/board-state.sh.
+func projectRoot() string {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	cwd, _ := os.Getwd()
+	return cwd
 }
 
 // setConfigField reads .ralph-ban/config.json, sets a top-level field, and writes
