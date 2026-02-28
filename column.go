@@ -189,9 +189,9 @@ func (c *column) View() string {
 	// Append sort direction icon for the Done column.
 	if c.index == colDone {
 		if c.sortReversed {
-			header += lipgloss.NewStyle().Foreground(lipgloss.Color("170")).Render(" \U000F0CBD")
+			header += lipgloss.NewStyle().Foreground(lipgloss.Color("170")).Render(" ")
 		} else {
-			header += lipgloss.NewStyle().Faint(true).Render(" \U000F0CBC")
+			header += lipgloss.NewStyle().Faint(true).Render(" ")
 		}
 	}
 
@@ -249,7 +249,6 @@ func (c *column) getCollapsedStyle() lipgloss.Style {
 		Height(c.height).
 		Align(lipgloss.Center)
 }
-
 
 // ViewVertical renders the column as a full-width horizontal band for vertical layout mode.
 // Cards are shown as compact single-line rows so all columns stack neatly top-to-bottom.

@@ -100,11 +100,11 @@ func newBoard(store *beadslite.Store) *board {
 	si.CharLimit = 80
 
 	b := &board{
-		store:        store,
-		cols:         cols,
-		help:         h,
-		searchInput:  si,
-		wip: wip,
+		store:       store,
+		cols:        cols,
+		help:        h,
+		searchInput: si,
+		wip:         wip,
 	}
 	b.cols[b.focused].Focus()
 	return b
@@ -449,14 +449,27 @@ func sortByPriority(items []list.Item) {
 	})
 }
 
-// reverseDoneItems reverses the Done column bucket in place so the user can
-// toggle between oldest-first (default, matches close order) and newest-first.
-// Only the Done bucket is mutated; all other columns are unchanged.
-func reverseDoneItems(buckets *[numColumns][]list.Item) {
+// sortDoneByRecency re-sorts the Done column bucket by ClosedAt descending
+// (most recently closed first). Cards without a ClosedAt timestamp sort to
+// the bottom — this shouldn't happen in practice since CloseIssue sets it.
+func sortDoneByRecency(buckets *[numColumns][]list.Item) {
 	items := buckets[colDone]
-	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
-		items[i], items[j] = items[j], items[i]
-	}
+	sort.Slice(items, func(a, b int) bool {
+		ca := items[a].(card)
+		cb := items[b].(card)
+		aTime := ca.issue.ClosedAt
+		bTime := cb.issue.ClosedAt
+		if aTime == nil && bTime == nil {
+			return false
+		}
+		if aTime == nil {
+			return false // nil sorts after non-nil
+		}
+		if bTime == nil {
+			return true
+		}
+		return aTime.After(*bTime)
+	})
 }
 
 // loadFromStore returns a command that loads all issues and sets up column items.
@@ -490,7 +503,7 @@ func (b *board) applyRefresh(msg refreshMsg) {
 	// Apply Done sort reversal before filtering or display so the user's
 	// chosen order is preserved across poll ticks.
 	if b.doneReversed {
-		reverseDoneItems(&buckets)
+		sortDoneByRecency(&buckets)
 	}
 	b.cols[colDone].sortReversed = b.doneReversed
 
@@ -1411,7 +1424,7 @@ func (b *board) applyActiveFilter() {
 
 	// Honour the Done column sort direction before applying filters.
 	if b.doneReversed {
-		reverseDoneItems(&buckets)
+		sortDoneByRecency(&buckets)
 	}
 
 	for i := columnIndex(0); i < numColumns; i++ {
@@ -1577,4 +1590,3 @@ func (b *board) zoomView() string {
 		rendered,
 	)
 }
-
