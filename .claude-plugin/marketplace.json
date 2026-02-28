@@ -6,6 +6,9 @@
     "name": "Kyle Snow Schwartz",
     "url": "https://github.com/kylesnowschwartz"
   },
+  "metadata": {
+    "description": "Kanban board TUI with Claude Code agent orchestration — hooks for board-aware sessions, agents for automated dispatch and review, stop guards for workflow enforcement."
+  },
   "plugins": [
     {
       "name": "ralph-ban",
