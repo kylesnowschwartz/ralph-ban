@@ -868,8 +868,6 @@ func (b *board) openEditForm() {
 	b.view = viewForm
 }
 
-// openDetail switches to detail mode showing the selected card.
-// Dependencies are resolved here so the detail overlay stays a pure renderer.
 // resolveBlockedBy returns the issues that block the given card.
 // GetDependencies returns rows where issue_id = id, meaning id depends on those issues.
 // Only DepBlocks entries are shown; DepParent (epic links) are filtered out.
