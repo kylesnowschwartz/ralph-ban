@@ -1083,3 +1083,91 @@ func TestApplyRefresh_EmptyIssuesEmptiesColumns(t *testing.T) {
 		}
 	}
 }
+
+// --- formatDeps ---
+
+func TestFormatDeps_EmptySlice(t *testing.T) {
+	result := formatDeps(nil)
+	if result != "" {
+		t.Errorf("formatDeps(nil) = %q, want empty string", result)
+	}
+}
+
+func TestFormatDeps_SingleEntry(t *testing.T) {
+	deps := []depEntry{{id: "bl-abc", title: "Some Card"}}
+	result := formatDeps(deps)
+	if result != "  bl-abc  Some Card" {
+		t.Errorf("formatDeps single = %q, want %q", result, "  bl-abc  Some Card")
+	}
+}
+
+func TestFormatDeps_MultipleEntries(t *testing.T) {
+	deps := []depEntry{
+		{id: "bl-one", title: "First"},
+		{id: "bl-two", title: "Second"},
+	}
+	result := formatDeps(deps)
+	want := "  bl-one  First\n  bl-two  Second"
+	if result != want {
+		t.Errorf("formatDeps multiple = %q, want %q", result, want)
+	}
+}
+
+// --- zoom e-to-edit transition ---
+
+func TestZoomEditKey_TransitionsToEditForm(t *testing.T) {
+	b := newTestBoard(t)
+
+	issue := makeIssue("bl-zoom-e", "Zoom Edit", beadslite.StatusTodo)
+	b.cols[b.focused].Blur()
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+	b.cols[colTodo].SetItems([]list.Item{card{issue: issue}})
+
+	// Simulate opening the zoom overlay.
+	b.openZoom()
+	if b.view != viewZoom {
+		t.Fatalf("view = %d after openZoom, want viewZoom (%d)", b.view, viewZoom)
+	}
+
+	// Press e — should transition to edit form.
+	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+
+	if b.view != viewForm {
+		t.Errorf("view = %d after e in zoom, want viewForm (%d)", b.view, viewForm)
+	}
+	if b.zoom != nil {
+		t.Error("zoom should be nil after transitioning to edit form")
+	}
+	if b.form == nil {
+		t.Error("form should be set after e in zoom")
+	}
+	if cmd == nil {
+		t.Error("e in zoom should return a textinputBlink command")
+	}
+}
+
+func TestZoomOtherKey_Dismisses(t *testing.T) {
+	b := newTestBoard(t)
+
+	issue := makeIssue("bl-zoom-esc", "Zoom Dismiss", beadslite.StatusTodo)
+	b.cols[b.focused].Blur()
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+	b.cols[colTodo].SetItems([]list.Item{card{issue: issue}})
+
+	b.openZoom()
+	if b.view != viewZoom {
+		t.Fatalf("view = %d after openZoom, want viewZoom (%d)", b.view, viewZoom)
+	}
+
+	// Press any key that isn't e — should dismiss.
+	b.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if b.view != viewBoard {
+		t.Errorf("view = %d after esc in zoom, want viewBoard (%d)", b.view, viewBoard)
+	}
+	if b.zoom != nil {
+		t.Error("zoom should be nil after non-edit key")
+	}
+}

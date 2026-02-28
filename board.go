@@ -21,11 +21,10 @@ type boardView int
 const (
 	viewBoard      boardView = iota // default: show columns
 	viewForm                        // create/edit form overlay
-	viewDetail                      // card detail overlay
 	viewSearch                      // cross-column search mode
 	viewResolution                  // resolution picker before closing a card
 	viewDepLink                     // dep-link picker: link focused card to a blocker
-	viewZoom                        // ephemeral peek overlay; any key dismisses
+	viewZoom                        // ephemeral peek overlay; e to edit, any other key dismisses
 )
 
 // board is the root tea.Model for the kanban TUI.
@@ -38,13 +37,12 @@ type board struct {
 	quitting bool
 	err      error
 
-	// Overlay state: view controls routing; form/detail/resolution/depLinker hold overlay data.
-	view         boardView
-	form         *form
-	detail       *detail
-	resolution   *resolutionPicker
-	depLinker    *depLinker
-	zoom         *zoomState // non-nil only while viewZoom is active
+	// Overlay state: view controls routing; form/resolution/depLinker hold overlay data.
+	view       boardView
+	form       *form
+	resolution *resolutionPicker
+	depLinker  *depLinker
+	zoom       *zoomState // non-nil only while viewZoom is active
 
 	// Undo stack for moves, priority changes, edits, and deletes.
 	// Capped at maxUndoStack entries; oldest entry is dropped when full.
@@ -128,10 +126,6 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.form.width = msg.Width
 			b.form.height = msg.Height
 		}
-		if b.detail != nil {
-			b.detail.width = msg.Width
-			b.detail.height = msg.Height
-		}
 		if b.resolution != nil {
 			b.resolution.width = msg.Width
 			b.resolution.height = msg.Height
@@ -163,14 +157,24 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Overlay-specific routing
 	switch b.view {
 	case viewZoom:
-		// Any keypress (including a second z) dismisses the peek.
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if msg, ok := msg.(tea.KeyMsg); ok {
+			if key.Matches(msg, keys.Edit) {
+				// Transition from zoom peek directly to edit form.
+				issue := b.zoom.issue
+				colIdx := b.zoom.colIdx
+				b.zoom = nil
+				f := editForm(issue, colIdx)
+				f.width = b.termWidth
+				f.height = b.termHeight
+				b.form = &f
+				b.view = viewForm
+				return b, textinputBlink()
+			}
+			// Any other key dismisses the peek.
 			b.view = viewBoard
 			b.zoom = nil
 		}
 		return b, nil
-	case viewDetail:
-		return b.updateDetail(msg)
 	case viewForm:
 		return b.updateForm(msg)
 	case viewSearch:
@@ -247,10 +251,6 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.openEditForm()
 			return b, textinputBlink()
 
-		case key.Matches(msg, keys.Detail):
-			b.openDetail()
-			return b, nil
-
 		case key.Matches(msg, keys.Zoom):
 			b.openZoom()
 			return b, nil
@@ -310,8 +310,6 @@ func (b *board) View() string {
 		return "Loading..."
 	}
 	switch b.view {
-	case viewDetail:
-		return b.detail.View()
 	case viewForm:
 		return b.form.View()
 	case viewResolution:
@@ -872,22 +870,6 @@ func (b *board) openEditForm() {
 
 // openDetail switches to detail mode showing the selected card.
 // Dependencies are resolved here so the detail overlay stays a pure renderer.
-func (b *board) openDetail() {
-	cd, ok := b.cols[b.focused].SelectedCard()
-	if !ok {
-		return
-	}
-
-	blockedBy := b.resolveBlockedBy(cd.issue.ID)
-	blocks := b.resolveBlocks(cd.issue.ID)
-
-	d := newDetail(cd.issue, b.focused, blockedBy, blocks)
-	d.width = b.termWidth
-	d.height = b.termHeight
-	b.detail = &d
-	b.view = viewDetail
-}
-
 // resolveBlockedBy returns the issues that block the given card.
 // GetDependencies returns rows where issue_id = id, meaning id depends on those issues.
 // Only DepBlocks entries are shown; DepParent (epic links) are filtered out.
@@ -933,38 +915,6 @@ func (b *board) resolveBlocks(id string) []depEntry {
 		}
 	}
 	return entries
-}
-
-// updateDetail routes messages to the detail overlay.
-// esc closes, e switches to edit form.
-func (b *board) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if key.Matches(msg, keys.Back) {
-			b.view = viewBoard
-			b.detail = nil
-			return b, nil
-		}
-		if key.Matches(msg, keys.Edit) {
-			// Transition from detail to edit
-			issue := b.detail.issue
-			colIdx := b.detail.columnIndex
-			b.detail = nil
-			f := editForm(issue, colIdx)
-			f.width = b.termWidth
-			f.height = b.termHeight
-			b.form = &f
-			b.view = viewForm
-			return b, textinputBlink()
-		}
-	}
-
-	if b.detail != nil {
-		d, cmd := b.detail.Update(msg)
-		b.detail = &d
-		return b, cmd
-	}
-	return b, nil
 }
 
 // updateForm routes messages to the form overlay.
@@ -1418,10 +1368,28 @@ func (b *board) applyActiveFilter() {
 	}
 }
 
+// depEntry is a resolved dependency: the issue ID and its title.
+// Storing both avoids a second store lookup during rendering.
+type depEntry struct {
+	id    string
+	title string
+}
+
+// formatDeps renders a slice of depEntries as indented lines: "  id  title".
+func formatDeps(deps []depEntry) string {
+	lines := make([]string, len(deps))
+	for idx, dep := range deps {
+		lines[idx] = "  " + dep.id + "  " + dep.title
+	}
+	return strings.Join(lines, "\n")
+}
+
 // zoomState holds the data needed to render the zoom peek overlay.
 // Dependencies are resolved at open time so zoomView() is a pure renderer.
+// colIdx records which column the card came from, needed for e-to-edit.
 type zoomState struct {
 	issue     *beadslite.Issue
+	colIdx    columnIndex
 	blockedBy []depEntry
 	blocks    []depEntry
 }
@@ -1436,6 +1404,7 @@ func (b *board) openZoom() {
 	}
 	b.zoom = &zoomState{
 		issue:     cd.issue,
+		colIdx:    b.focused,
 		blockedBy: b.resolveBlockedBy(cd.issue.ID),
 		blocks:    b.resolveBlocks(cd.issue.ID),
 	}
@@ -1505,7 +1474,7 @@ func (b *board) zoomView() string {
 	fields = lipgloss.JoinVertical(lipgloss.Left,
 		fields,
 		"",
-		faintStyle.Render("any key: dismiss"),
+		faintStyle.Render("e: edit  any key: dismiss"),
 	)
 
 	// Width is most of the terminal but not all, so the board edges remain visible.

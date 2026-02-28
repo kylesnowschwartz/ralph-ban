@@ -13,8 +13,7 @@ type keyMap struct {
 	MoveRight    key.Binding
 	MoveLeft     key.Binding
 	Undo         key.Binding
-	Detail       key.Binding
-	Zoom         key.Binding // peek at the focused card's full content; any key dismisses
+	Zoom         key.Binding // peek at the focused card's full content; e to edit, any other key dismisses
 	PriorityUp   key.Binding
 	PriorityDown key.Binding
 	Search       key.Binding
@@ -70,10 +69,6 @@ var keys = keyMap{
 	Undo: key.NewBinding(
 		key.WithKeys("u"),
 		key.WithHelp("u", "undo"),
-	),
-	Detail: key.NewBinding(
-		key.WithKeys(" "),
-		key.WithHelp("space", "detail"),
 	),
 	Zoom: key.NewBinding(
 		key.WithKeys("z"),
@@ -139,7 +134,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
-		{k.New, k.Edit, k.Delete, k.MoveRight, k.MoveLeft, k.Undo, k.Detail, k.Zoom, k.PriorityUp, k.PriorityDown},
+		{k.New, k.Edit, k.Delete, k.MoveRight, k.MoveLeft, k.Undo, k.Zoom, k.PriorityUp, k.PriorityDown},
 		{k.Search, k.FilterNext, k.FilterPrev, k.BlockedBy, k.Blocks, k.LayoutToggle, k.Help, k.Quit, k.Suspend, k.Back, k.CtrlClick},
 	}
 }
