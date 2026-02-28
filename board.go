@@ -228,6 +228,16 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return moveMsg{card: cd, source: src, target: targetCol}
 				}
 			}
+			// Click on Done column header: toggle sort direction.
+			// In horizontal mode the header sits at Y <= 2 (breathing room + border + title).
+			// Vertical mode header Y varies per column, so the s key covers that case.
+			if targetCol == colDone && !b.verticalLayout && m.Y <= 2 {
+				b.doneReversed = !b.doneReversed
+				b.cols[colDone].sortReversed = b.doneReversed
+				b.applyActiveFilter()
+				return b, nil
+			}
+
 			// Plain click: focus the clicked column.
 			if targetCol != b.focused {
 				b.moveFocus(int(targetCol - b.focused))
