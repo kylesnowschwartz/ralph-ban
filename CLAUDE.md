@@ -65,7 +65,7 @@ Four hooks inject board state and enforce workflow gates. All source `hooks/lib/
 
 ## Agent Frontmatter
 
-Workers have `maxTurns` and `permissionMode: bypassPermissions` set in their YAML frontmatter. Claude Code enforces these natively — no CLI flags needed.
+Workers have `permissionMode: bypassPermissions` set in their YAML frontmatter. Claude Code enforces this natively — no CLI flags needed.
 
 ## Development
 
