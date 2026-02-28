@@ -11,8 +11,6 @@ import (
 func TestBuildClaudeArgs(t *testing.T) {
 	tests := []struct {
 		name         string
-		pluginDir    string
-		settingsPath string
 		model        string
 		prompt       string
 		resume       string
@@ -21,51 +19,39 @@ func TestBuildClaudeArgs(t *testing.T) {
 		wantAbsent   []string
 	}{
 		{
-			name:         "defaults",
-			pluginDir:    "/project",
-			settingsPath: "/project/.claude-plugin/settings.json",
+			name: "defaults",
 			wantContains: []string{
-				"--plugin-dir", "/project",
 				"--agent", "orchestrator",
-				"--settings", "/project/.claude-plugin/settings.json",
 				"State your role and mission",
 			},
 			wantAbsent: []string{
 				"--model",
+				"--plugin-dir",
+				"--settings",
 				"--dangerously-skip-permissions",
 				"--resume",
 			},
 		},
 		{
 			name:         "model override",
-			pluginDir:    "/project",
-			settingsPath: "/project/.claude-plugin/settings.json",
 			model:        "sonnet",
 			wantContains: []string{"--model", "sonnet"},
 		},
 		{
 			name:         "passthrough flags",
-			pluginDir:    "/project",
-			settingsPath: "/project/.claude-plugin/settings.json",
 			passthrough:  []string{"--dangerously-skip-permissions"},
 			wantContains: []string{"--dangerously-skip-permissions"},
 		},
 		{
 			name:         "custom prompt",
-			pluginDir:    "/project",
-			settingsPath: "/project/.claude-plugin/settings.json",
 			prompt:       "Do something specific",
 			wantContains: []string{"Do something specific"},
 			wantAbsent:   []string{"State your role"},
 		},
 		{
-			name:         "resume skips agent and prompt",
-			pluginDir:    "/project",
-			settingsPath: "/project/.claude-plugin/settings.json",
-			resume:       "abc-123-session-id",
+			name:   "resume skips agent and prompt",
+			resume: "abc-123-session-id",
 			wantContains: []string{
-				"--plugin-dir", "/project",
-				"--settings", "/project/.claude-plugin/settings.json",
 				"--resume", "abc-123-session-id",
 			},
 			wantAbsent: []string{
@@ -77,7 +63,7 @@ func TestBuildClaudeArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			args := buildClaudeArgs(tt.pluginDir, tt.settingsPath, tt.model, tt.prompt, tt.resume, tt.passthrough)
+			args := buildClaudeArgs(tt.model, tt.prompt, tt.resume, tt.passthrough)
 			joined := strings.Join(args, " ")
 
 			t.Logf("args: %v", args)

@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$BL_ROOT/hooks/session-start.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"",
             "timeout": 10000
           }
         ]
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$BL_ROOT/hooks/board-sync.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/board-sync.sh\"",
             "timeout": 10000
           }
         ]
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$BL_ROOT/hooks/stop-guard.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-guard.sh\"",
             "timeout": 10000
           }
         ]
@@ -59,7 +59,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$BL_ROOT/hooks/task-completed.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/task-completed.sh\"",
             "timeout": 10000
           }
         ]
@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$BL_ROOT/hooks/teammate-idle.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/teammate-idle.sh\"",
             "timeout": 10000
           }
         ]
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$BL_ROOT/hooks/pre-compact.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact.sh\"",
             "timeout": 10000
           }
         ]

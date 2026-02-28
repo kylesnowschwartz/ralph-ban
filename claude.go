@@ -10,9 +10,10 @@ import (
 	"syscall"
 )
 
-// runClaude starts a Claude Code session with the ralph-ban plugin loaded
-// and the orchestrator agent. Claude Code reads agents/orchestrator.md
-// directly, including its YAML frontmatter (model, name, isolation).
+// runClaude starts a Claude Code session with the orchestrator agent.
+// The ralph-ban plugin must be installed via Claude Code's plugin system;
+// hooks, agents, and settings are resolved from the plugin cache automatically.
+// BL_ROOT is set to cwd so hooks can find the project's beads-lite database.
 //
 // Flags before -- are ralph-ban's; flags after -- pass through to claude.
 // Example: ralph-ban claude --stop-mode batch -- --dangerously-skip-permissions
@@ -49,24 +50,13 @@ Examples:
 		*prompt = fs.Arg(0)
 	}
 
-	pluginDir, err := findPluginDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot locate plugin directory: %v\n", err)
-		os.Exit(1)
-	}
-
 	claudeBin, err := exec.LookPath("claude")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude not found in PATH. Install Claude Code first.\n")
 		os.Exit(1)
 	}
 
-	// Resolve the settings file path so hook commands work from any cwd.
-	// The settings file uses $BL_ROOT to reference hook scripts, so it works
-	// for workers in worktrees even though their cwd differs from the project root.
-	settingsPath := filepath.Join(pluginDir, ".claude-plugin", "settings.json")
-
-	claudeArgs := buildClaudeArgs(pluginDir, settingsPath, *model, *prompt, *resume, passthrough)
+	claudeArgs := buildClaudeArgs(*model, *prompt, *resume, passthrough)
 
 	// Set agent name so hooks can identify this session.
 	os.Setenv("CLAUDE_AGENT_NAME", *name)
@@ -90,15 +80,13 @@ Examples:
 
 // buildClaudeArgs constructs the argument list for the claude binary.
 // The --agent flag delegates agent loading to Claude Code, which reads
-// agents/orchestrator.md and applies its frontmatter (model, isolation, etc.).
-// settingsPath is passed via --settings so hook commands resolve correctly
-// for both the orchestrator and workers spawned in isolated worktrees.
+// agents/orchestrator.md from the installed ralph-ban plugin and applies
+// its frontmatter (model, isolation, etc.).
+// Plugin discovery, hooks, and settings are handled by Claude Code's native
+// plugin system — no --plugin-dir or --settings flags needed.
 // passthrough args are appended last — these come from after -- in the CLI.
-func buildClaudeArgs(pluginDir, settingsPath, model, prompt, resume string, passthrough []string) []string {
-	args := []string{
-		"--plugin-dir", pluginDir,
-		"--settings", settingsPath,
-	}
+func buildClaudeArgs(model, prompt, resume string, passthrough []string) []string {
+	var args []string
 
 	// Resuming a session: pass --resume and skip --agent (the resumed session
 	// already has its agent context). Also skip the default prompt.
@@ -138,31 +126,6 @@ func splitAtDoubleDash(args []string) (before, after []string) {
 		}
 	}
 	return args, nil
-}
-
-// findPluginDir locates the ralph-ban plugin directory by looking for
-// .claude-plugin/plugin.json relative to the binary, then relative to cwd.
-func findPluginDir() (string, error) {
-	// Try relative to the binary location (works when built from this repo).
-	binPath, err := os.Executable()
-	if err == nil {
-		binDir := filepath.Dir(binPath)
-		candidate := filepath.Join(binDir, ".claude-plugin", "plugin.json")
-		if _, err := os.Stat(candidate); err == nil {
-			return binDir, nil
-		}
-	}
-
-	// Try current working directory.
-	cwd, err := os.Getwd()
-	if err == nil {
-		candidate := filepath.Join(cwd, ".claude-plugin", "plugin.json")
-		if _, err := os.Stat(candidate); err == nil {
-			return cwd, nil
-		}
-	}
-
-	return "", fmt.Errorf("no .claude-plugin/plugin.json found near binary or in cwd")
 }
 
 // setConfigField reads .ralph-ban/config.json, sets a top-level field, and writes
