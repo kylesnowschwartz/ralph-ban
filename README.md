@@ -15,7 +15,7 @@ A terminal kanban board built with [bubbletea](https://github.com/charmbracelet/
 ╰───────────────────────╯
                              [  | *Backlog* | To Do | Doing | Review>]
 
-n new · e edit · ⏎ move → · ⌫ move ← · space detail · ? more
+n new · e edit · ⏎ move → · ⌫ move ← · z zoom · ? more
 ```
 
 Five columns (Backlog, To Do, Doing, Review, Done) with vim-style navigation. The board pans horizontally when the terminal is too narrow to fit all columns.
@@ -69,7 +69,7 @@ ralph-ban
 | `n` | New card |
 | `e` | Edit card |
 | `d` | Delete (press twice to confirm) |
-| `space` | Expand card detail view |
+| `z` | Zoom card (peek detail, `e` to edit) |
 | `Enter` | Move card right |
 | `Backspace` | Move card left |
 | `u` | Undo last move |
