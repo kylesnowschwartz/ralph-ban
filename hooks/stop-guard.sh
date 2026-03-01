@@ -127,6 +127,7 @@ mkdir -p "${_STOP_ROOT}/${RALPH_BAN_DIR}"
 
 current_hash=$(read_board_hash)
 last_hash=$(cat "$HASH_FILE" 2>/dev/null || echo "")
+stall_count=0
 
 if [ "$current_hash" = "$last_hash" ]; then
   # No board progress since last stop attempt — increment stall counter
@@ -176,36 +177,55 @@ if [ "$should_block" = "yes" ]; then
     fi
   fi
 
-  # Build the block message — mode sets the framing, next_action adds specifics.
-  auto_suffix=""
+  # Build the block message.
+  # The message must be directive enough that the agent does real work, not
+  # just acknowledges and retries stop. Including the stall count serves two
+  # purposes: (1) the agent sees how many attempts remain before the safety
+  # valve opens, and (2) each message has a unique hash, which naturally
+  # defeats the debounce — every attempt gets the full guidance.
+  remaining=$((MAX_STALLS - stall_count))
+
   if [ "$stop_mode" = "autonomous" ]; then
-    reason="Board has active work remaining"
-    summary="${todo_count} todo and ${doing_count} doing cards remain."
-    auto_suffix=" Autonomous mode: merge reviewed cards without asking — reviewer approval is sufficient."
+    reason="STOP BLOCKED (attempt $((stall_count + 1)) of ${MAX_STALLS}) — board has active work"
+    summary="${todo_count} todo, ${doing_count} doing."
   else
-    reason="Stop mode: batch. ${doing_count} cards in doing — finish or unclaim them before stopping."
+    reason="STOP BLOCKED (attempt $((stall_count + 1)) of ${MAX_STALLS}) — ${doing_count} cards in doing"
     summary="${doing_count} cards in doing — finish or unclaim them before stopping."
   fi
 
+  # Assemble the directive via heredoc — readable and handles newlines naturally.
+  # The next_action and autonomous blocks are conditionally appended after.
+  directive=$(
+    cat <<EOF
+STOP BLOCKED — attempt $((stall_count + 1)) of ${MAX_STALLS}. ${summary}
+
+You MUST continue working. Do not respond with a short acknowledgment — that burns a stop cycle without advancing the board. After ${remaining} more stalled attempts the safety valve allows exit, but the goal is to drain the board, not run out the clock.
+EOF
+  )
+
   if [ -n "$next_action" ]; then
-    guidance="${summary} ${next_action}"
-  else
-    if [ "$stop_mode" = "autonomous" ]; then
-      guidance="${summary} Dispatch the next card now. The stop hook keeps you running until the board is drained."
-    else
-      guidance="${summary}"
-    fi
+    directive+=$'\n\n'"NEXT ACTION: ${next_action}"
+  fi
+
+  directive+=$(
+    cat <<'LOOP'
+
+
+The ralph loop: read the board, dispatch or claim work, implement, review, merge, repeat. This hook fires because work remains. The only way it stops firing is board progress — cards moving right or closing.
+LOOP
+  )
+
+  if [ "$stop_mode" = "autonomous" ]; then
+    directive+=$'\n\n'"Autonomous mode: merge reviewed cards without asking — reviewer approval is sufficient. Dispatch the next card immediately."
   fi
 
   jq -n \
     --arg reason "$reason" \
-    --arg mode "$stop_mode" \
-    --arg guidance "$guidance" \
-    --arg suffix "$auto_suffix" \
+    --arg directive "$directive" \
     '{
       decision: "block",
       reason: $reason,
-      systemMessage: ("Stop mode: " + $mode + ". " + $guidance + $suffix)
+      systemMessage: $directive
     }' | debounce_stop_message
 else
   # Board is clear (or batch mode with no doing cards) — allow exit.
