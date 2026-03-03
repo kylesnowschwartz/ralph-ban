@@ -663,6 +663,53 @@ func TestHandleMove_WIPLimitBlocked(t *testing.T) {
 	}
 }
 
+// TestHandleMove_WIPLimitFilterBypass verifies that an active filter cannot
+// hide existing cards and let a move slip past the WIP limit.
+// When priority filter P1 is active, only P1 cards are visible — but the column
+// already holds two cards total (a P1 and a P2). The WIP limit is 2, so the
+// column is full. Without the fix, the visible-only count would be 1 and the
+// move would be allowed incorrectly.
+func TestHandleMove_WIPLimitFilterBypass(t *testing.T) {
+	b := newTestBoard(t)
+	b.wip = boardConfig{WIPLimits: map[string]int{"doing": 2}}
+
+	// Two existing cards in doing — one P1 (visible under filter) and one P2 (hidden).
+	p1 := makeIssue("bl-p1", "P1 Task", beadslite.StatusDoing)
+	p1.Priority = 1
+	p2 := makeIssue("bl-p2", "P2 Task", beadslite.StatusDoing)
+	p2.Priority = 2
+
+	// Populate allIssues (the authoritative source used when a filter is active).
+	b.allIssues = []*beadslite.Issue{p1, p2}
+
+	// Activate a P1 priority filter so only p1 is visible.
+	b.filter = activeFilter{field: filterPriority, value: "P1"}
+	b.cols[colDoing].SetItems([]list.Item{card{issue: p1}}) // only the matching card is shown
+
+	// Attempt to move another card from todo into the already-full doing column.
+	incoming := makeIssue("bl-incoming", "Incoming", beadslite.StatusTodo)
+	b.cols[colTodo].SetItems([]list.Item{card{issue: incoming}})
+
+	cmd := b.handleMove(moveMsg{
+		card:   card{issue: incoming},
+		source: colTodo,
+		target: colDoing,
+	})
+
+	if cmd != nil {
+		t.Error("handleMove should return nil when WIP limit is reached (filter active)")
+	}
+	if b.err == nil {
+		t.Error("board error should be set when WIP limit blocks a move (filter active)")
+	}
+
+	// The incoming card must not have moved.
+	doingItems := b.cols[colDoing].list.Items()
+	if len(doingItems) != 1 {
+		t.Errorf("doing has %d visible items after blocked move, want 1 (only p1)", len(doingItems))
+	}
+}
+
 func TestHandleMove_ClearsErrorOnSuccess(t *testing.T) {
 	b := newTestBoard(t)
 

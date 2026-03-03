@@ -509,8 +509,10 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 	}
 
 	// Enforce WIP limit before mutating any state.
+	// Use the unfiltered column count so an active filter can't mask cards
+	// that are already occupying the slot.
 	if limit := b.wip.wipLimit(result.target); limit > 0 {
-		current := len(b.cols[result.target].list.Items())
+		current := b.unfilteredColumnCount(result.target)
 		if current >= limit {
 			b.err = fmt.Errorf(
 				"WIP limit reached: %s is at capacity (%d/%d)",
@@ -749,8 +751,10 @@ func (b *board) handleClose(msg closeMsg) tea.Cmd {
 	}
 
 	// Enforce WIP limit on Done column.
+	// Use the unfiltered column count so an active filter can't mask cards
+	// that are already occupying the slot.
 	if limit := b.wip.wipLimit(colDone); limit > 0 {
-		current := len(b.cols[colDone].list.Items())
+		current := b.unfilteredColumnCount(colDone)
 		if current >= limit {
 			b.err = fmt.Errorf(
 				"WIP limit reached: %s is at capacity (%d/%d)",
@@ -1394,6 +1398,32 @@ func (b *board) applyActiveFilter() {
 		}
 		b.cols[i].SetItems(applyFilterToItems(items, b.filter))
 	}
+}
+
+// unfilteredColumnCount returns the true number of cards in col, ignoring any
+// active search or filter that may have narrowed the visible list.
+//
+// WIP limit checks must use this so that a filter cannot hide existing cards
+// and let a move slip past the limit.
+//
+//   - Search mode: allItems holds the pre-search full set per column.
+//   - Filter mode: allIssues is the canonical list; count by target status.
+//   - No filter/search: list.Items() already reflects the full set.
+func (b *board) unfilteredColumnCount(col columnIndex) int {
+	if b.view == viewSearch {
+		return len(b.allItems[col])
+	}
+	if b.filter.field != filterNone {
+		targetStatus := columnToStatus[col]
+		count := 0
+		for _, issue := range b.allIssues {
+			if issue.Status == targetStatus {
+				count++
+			}
+		}
+		return count
+	}
+	return len(b.cols[col].list.Items())
 }
 
 // depEntry is a resolved dependency: the issue ID and its title.
