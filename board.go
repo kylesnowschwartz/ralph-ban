@@ -163,21 +163,7 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch b.view {
 	case viewZoom:
 		if msg, ok := msg.(tea.KeyMsg); ok {
-			if key.Matches(msg, keys.Edit) {
-				// Transition from zoom peek directly to edit form.
-				issue := b.zoom.issue
-				colIdx := b.zoom.colIdx
-				b.zoom = nil
-				f := editForm(issue, colIdx)
-				f.width = b.termWidth
-				f.height = b.termHeight
-				b.form = &f
-				b.view = viewForm
-				return b, textinputBlink()
-			}
-			// Any other key dismisses the peek.
-			b.view = viewBoard
-			b.zoom = nil
+			return b.handleZoomKey(msg)
 		}
 		return b, nil
 	case viewForm:
@@ -248,76 +234,37 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, keys.Quit):
-			b.quitting = true
-			return b, tea.Quit
-
+			return b.handleQuit()
 		case key.Matches(msg, keys.Left):
-			b.moveFocus(-1)
-			return b, nil
-
+			return b.handleFocusLeft()
 		case key.Matches(msg, keys.Right):
-			b.moveFocus(1)
-			return b, nil
-
+			return b.handleFocusRight()
 		case key.Matches(msg, keys.New):
-			b.openNewForm()
-			return b, textinputBlink()
-
+			return b.handleNewCard()
 		case key.Matches(msg, keys.Edit):
-			b.openEditForm()
-			return b, textinputBlink()
-
+			return b.handleEditCard()
 		case key.Matches(msg, keys.Zoom):
-			b.openZoom()
-			return b, nil
-
+			return b.handleZoom()
 		case key.Matches(msg, keys.Undo):
-			return b, b.undoLast()
-
+			return b.handleUndo()
 		case key.Matches(msg, keys.Help):
-			b.help.ShowAll = !b.help.ShowAll
-			return b, nil
-
+			return b.handleToggleHelp()
 		case key.Matches(msg, keys.Search):
-			b.openSearch()
-			return b, textinputBlink()
-
+			return b.handleSearch()
 		case key.Matches(msg, keys.BlockedBy):
-			b.openDepLinker(depModeBlockedBy)
-			return b, nil
-
+			return b.handleBlockedBy()
 		case key.Matches(msg, keys.Blocks):
-			b.openDepLinker(depModeBlocks)
-			return b, nil
-
+			return b.handleBlocks()
 		case key.Matches(msg, keys.FilterNext):
-			b.cycleFilter(+1)
-			return b, nil
-
+			return b.handleFilterNext()
 		case key.Matches(msg, keys.FilterPrev):
-			b.cycleFilter(-1)
-			return b, nil
-
+			return b.handleFilterPrev()
 		case key.Matches(msg, keys.LayoutToggle):
-			b.verticalLayout = !b.verticalLayout
-			b.updatePan()
-			b.resizeColumns()
-			return b, nil
-
+			return b.handleLayoutToggle()
 		case key.Matches(msg, keys.SortToggle):
-			if b.focused == colDone {
-				b.doneReversed = !b.doneReversed
-				b.cols[colDone].sortReversed = b.doneReversed
-				b.applyActiveFilter()
-			}
-			return b, nil
-
+			return b.handleSortToggle()
 		case key.Matches(msg, keys.Back):
-			if b.filter.field != filterNone {
-				b.clearFilter()
-				return b, nil
-			}
-
+			return b.handleClearFilter()
 		}
 	}
 
@@ -1589,4 +1536,119 @@ func (b *board) zoomView() string {
 		lipgloss.Center, lipgloss.Center,
 		rendered,
 	)
+}
+
+// Key handlers — each corresponds to one case in the KeyMsg dispatch table.
+// Methods return (tea.Model, tea.Cmd) so Update can tail-return them directly.
+
+// handleZoomKey processes keypresses while the zoom peek overlay is active.
+// Pressing Edit transitions directly to the edit form; any other key dismisses.
+func (b *board) handleZoomKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.Matches(msg, keys.Edit) {
+		issue := b.zoom.issue
+		colIdx := b.zoom.colIdx
+		b.zoom = nil
+		f := editForm(issue, colIdx)
+		f.width = b.termWidth
+		f.height = b.termHeight
+		b.form = &f
+		b.view = viewForm
+		return b, textinputBlink()
+	}
+	b.view = viewBoard
+	b.zoom = nil
+	return b, nil
+}
+
+func (b *board) handleQuit() (tea.Model, tea.Cmd) {
+	b.quitting = true
+	return b, tea.Quit
+}
+
+func (b *board) handleFocusLeft() (tea.Model, tea.Cmd) {
+	b.moveFocus(-1)
+	return b, nil
+}
+
+func (b *board) handleFocusRight() (tea.Model, tea.Cmd) {
+	b.moveFocus(1)
+	return b, nil
+}
+
+func (b *board) handleNewCard() (tea.Model, tea.Cmd) {
+	b.openNewForm()
+	return b, textinputBlink()
+}
+
+func (b *board) handleEditCard() (tea.Model, tea.Cmd) {
+	b.openEditForm()
+	return b, textinputBlink()
+}
+
+func (b *board) handleZoom() (tea.Model, tea.Cmd) {
+	b.openZoom()
+	return b, nil
+}
+
+func (b *board) handleUndo() (tea.Model, tea.Cmd) {
+	return b, b.undoLast()
+}
+
+func (b *board) handleToggleHelp() (tea.Model, tea.Cmd) {
+	b.help.ShowAll = !b.help.ShowAll
+	return b, nil
+}
+
+func (b *board) handleSearch() (tea.Model, tea.Cmd) {
+	b.openSearch()
+	return b, textinputBlink()
+}
+
+func (b *board) handleBlockedBy() (tea.Model, tea.Cmd) {
+	b.openDepLinker(depModeBlockedBy)
+	return b, nil
+}
+
+func (b *board) handleBlocks() (tea.Model, tea.Cmd) {
+	b.openDepLinker(depModeBlocks)
+	return b, nil
+}
+
+func (b *board) handleFilterNext() (tea.Model, tea.Cmd) {
+	b.cycleFilter(+1)
+	return b, nil
+}
+
+func (b *board) handleFilterPrev() (tea.Model, tea.Cmd) {
+	b.cycleFilter(-1)
+	return b, nil
+}
+
+func (b *board) handleLayoutToggle() (tea.Model, tea.Cmd) {
+	b.verticalLayout = !b.verticalLayout
+	b.updatePan()
+	b.resizeColumns()
+	return b, nil
+}
+
+// handleSortToggle reverses the Done column sort when focused on Done.
+// Pressing the sort key on any other column is a no-op.
+func (b *board) handleSortToggle() (tea.Model, tea.Cmd) {
+	if b.focused == colDone {
+		b.doneReversed = !b.doneReversed
+		b.cols[colDone].sortReversed = b.doneReversed
+		b.applyActiveFilter()
+	}
+	return b, nil
+}
+
+// handleClearFilter clears the active filter when Back is pressed.
+// If no filter is active the key is not consumed, so it falls through to the
+// focused column (which uses it to deselect items).
+func (b *board) handleClearFilter() (tea.Model, tea.Cmd) {
+	if b.filter.field != filterNone {
+		b.clearFilter()
+		return b, nil
+	}
+	return b, nil
 }
