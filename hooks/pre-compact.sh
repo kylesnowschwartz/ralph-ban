@@ -18,12 +18,18 @@ if [ -z "$state" ]; then
   exit 0
 fi
 
-# Count by status — gives the agent a snapshot without listing every card.
+# Count by status — active columns show titles, done shows count only.
 summary=$(echo "$state" | jq -s '
   group_by(.status) |
   map({status: .[0].status, count: length, titles: [.[].title]}) |
   sort_by(.status) |
-  map(.status + " (" + (.count | tostring) + "): " + (.titles | join(", "))) |
+  map(
+    if .status == "done" then
+      .status + " (" + (.count | tostring) + ")"
+    else
+      .status + " (" + (.count | tostring) + "): " + (.titles | join(", "))
+    end
+  ) |
   join("\n")
 ' -r 2>/dev/null || echo "Could not parse board state")
 
