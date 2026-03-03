@@ -40,9 +40,20 @@ The User has full TTY access to communicate with you when collaboration is neede
    pre-existing failures early prevents wasted turns debugging your own changes.
 7. Implement the change.
 8. Verify: run the project's lint command, then its test command (from `project_commands`).
-9. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
-10. Move to review: `bl update <id> --status review`.
-11. Report result back to orchestrator. Include in your result:
+9. Rebase onto latest main before committing. The orchestrator may have committed
+   new work to main while you implemented — rebasing keeps your branch a clean
+   fast-forward and avoids merge conflicts during review.
+   ```
+   git rebase main
+   ```
+   Worktrees share refs with the main repo, so local `main` already reflects the
+   orchestrator's latest commits — no fetch needed.
+   If the rebase produces conflicts, resolve them, re-run tests, then continue.
+   If conflicts are too complex, commit on your current branch and note in your
+   report that the orchestrator will need to resolve conflicts during merge.
+10. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
+11. Move to review: `bl update <id> --status review`.
+12. Report result back to orchestrator. Include in your result:
    - What changed and why
    - The worktree branch name (`git branch --show-current`)
    The orchestrator needs the branch name to spawn the reviewer correctly.

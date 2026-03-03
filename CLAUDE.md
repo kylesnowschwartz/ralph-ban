@@ -28,7 +28,7 @@ Layout uses `panOffset` to slide a window of visible columns (`minColumnWidth=24
 Single agent + subagent worktrees. The lead agent reads the board and dispatches subagent workers via `Task(isolation: "worktree")`. Workers implement in isolated worktrees and return results. The lead agent reviews diffs directly, then merges to main.
 
 - **Orchestrator** (`agents/orchestrator.md`) — Reads the board, dispatches workers, reviews diffs, merges. Never implements code directly. Uses opus.
-- **Worker** (`agents/worker.md`) — Implements one card in an isolated git worktree. Uses sonnet. Worktrees allow multiple workers in parallel without working-tree conflicts.
+- **Worker** (`agents/worker.md`) — Implements one card in an isolated git worktree. Uses sonnet. Worktrees allow multiple workers in parallel without working-tree conflicts. Workers rebase onto main before committing so the orchestrator can fast-forward merge.
 
 ### Workflow phases
 

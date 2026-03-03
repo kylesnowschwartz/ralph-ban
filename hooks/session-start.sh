@@ -30,19 +30,34 @@ if [ -z "$ready" ]; then
   exit 0
 fi
 
-# Get the first (highest priority) ready item
-first=$(echo "$ready" | head -1)
+# Count totals
+total=$(echo "$ready" | wc -l | tr -d ' ')
+
+# Categorize by status. Doing/review items represent work already in flight —
+# finishing them is always higher priority than starting new todo items.
+doing=$(echo "$ready" | jq -c 'select(.status == "doing")' 2>/dev/null)
+review=$(echo "$ready" | jq -c 'select(.status == "review")' 2>/dev/null)
+
+# Pick the most urgent item: doing > review > first ready.
+if [ -n "$doing" ]; then
+  first=$(echo "$doing" | head -1)
+  action="Resume in-progress"
+elif [ -n "$review" ]; then
+  first=$(echo "$review" | head -1)
+  action="Review waiting"
+else
+  first=$(echo "$ready" | head -1)
+  action="Next up"
+fi
+
 title=$(echo "$first" | jq -r '.title // "unknown"')
 id=$(echo "$first" | jq -r '.id // "unknown"')
 status=$(echo "$first" | jq -r '.status // "unknown"')
 
-# Count totals
-total=$(echo "$ready" | wc -l | tr -d ' ')
-
 # Include stop mode so the orchestrator knows its behavior from the first message.
 stop_mode=$(read_stop_mode)
 
-board_summary="Board has ${total} ready items. Highest priority: '${title}' (${id}, ${status}). Stop mode: ${stop_mode}."
+board_summary="Board has ${total} ready items. ${action}: '${title}' (${id}, ${status}). Stop mode: ${stop_mode}."
 
 # Append rate limit pause notice if active.
 pause_info=$(check_rate_limit_pause 2>/dev/null || true)

@@ -30,6 +30,16 @@ PHASE 1 - ASSESS: Check the board, plan the work
   bl ready --json -> see available cards
   bl list --tree -> understand dependencies
   Identify cards that can be worked in parallel.
+
+  Check WIP limits before planning dispatches. Read `.ralph-ban/config.json`
+  for `wip_limits` (map of column name to max count). If the "doing" column
+  is at or near capacity:
+  - Prioritize finishing in-progress work (review, merge) over starting new cards
+  - Move lower-priority todo cards to backlog to reduce pressure
+  - Do not dispatch workers that would push a column over its limit
+  If no WIP limits are configured, use judgment — 3-4 concurrent workers is
+  a practical ceiling given worktree merge overhead.
+
   batch mode:   Present the plan and wait. "Found N cards ready for work. Here's the plan: ..."
   autonomous mode: State what you found and what you're dispatching. No approval needed — proceed immediately to Phase 2.
 
@@ -58,6 +68,21 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
   permissionMode: bypassPermissions in their frontmatter — the framework enforces this.
   batch mode:   Confirm with user before spawning. "Ready to spawn N workers — proceed?"
   autonomous mode: Dispatch immediately after assessment. Report what you're doing but don't wait for approval. "Dispatching N workers for: ..."
+
+PHASE 2.5 - PRODUCTIVE WAITING: Work while workers run
+  Workers take time. Don't idle — use the gap productively. Focus on work
+  that doesn't touch the same files your workers are modifying:
+  - Small direct fixes: cards too small or simple to justify a worktree
+    (one-line fixes, doc typos, config changes, hook tweaks)
+  - Board grooming: break large cards into smaller ones, add missing
+    dependencies, close duplicates, refine descriptions
+  - Test gaps: add tests for pure functions that don't overlap worker scope
+  - Code review prep: read the files workers are modifying so you review
+    faster when they return
+  - Dependency audits: check for outdated or unused dependencies
+  Commit your own work before workers return — stale worktree branches are
+  easier to merge when main has a clean HEAD.
+  When workers complete, transition immediately to Phase 3.
 
 PHASE 3 - REVIEW: Examine each worker's changes yourself
   Once all workers have completed, clear the activity marker so the stop hook
@@ -196,6 +221,9 @@ You (the orchestrator) run with the user's permission level.
 - MUST create cards for new work discovered during coordination.
 - SHOULD include file scope in worker prompts ("modify only X, Y, Z").
 - SHOULD prioritize reviewing completed workers over spawning new ones.
+- SHOULD respect WIP limits: finish in-progress work before starting new cards.
+  When a column is at capacity, move lower-priority cards to backlog rather than
+  forcing them through.
 - NEVER ask the user "Should I continue?", "Want me to proceed?", or equivalent in autonomous mode.
   The stop hook is the only arbiter of whether work is done. If it blocks, keep working.
   If it allows exit, you're done. Do not substitute your judgment for the hook's.
