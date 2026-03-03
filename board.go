@@ -60,8 +60,10 @@ type board struct {
 	// allBlockedIDs mirrors the blockedIDs from the latest refresh so the lock icon
 	// indicator is preserved when cycling filters between poll ticks.
 	filter        activeFilter
-	allIssues     []*beadslite.Issue
-	allBlockedIDs map[string]bool
+	allIssues        []*beadslite.Issue
+	allBlockedIDs    map[string]bool
+	lastFingerprint     uint64 // hash of issue set from last refresh; used to detect external changes
+	pendingLocalChanges int    // number of local writes not yet seen by a refresh; suppresses undo clear
 
 	// Layout panning
 	termWidth      int
@@ -442,10 +444,16 @@ func (b *board) loadFromStore() tea.Cmd {
 // resizeColumns is called after updating items so collapsed state reflects
 // current card counts (cards added/removed externally via CLI update the layout).
 func (b *board) applyRefresh(msg refreshMsg) {
-	// Undo entries recorded before this refresh may no longer reflect reality
-	// (another session or CLI could have modified the same cards). Clear the
-	// stack so the user can't undo against a snapshot that no longer exists.
-	b.undo.clear()
+	// Only clear the undo stack when the refresh detects external changes.
+	// pendingLocalChanges tracks writes this session made that haven't been
+	// reflected in a refresh yet — those fingerprint changes are ours, not
+	// external. Once the counter drains, any fingerprint change is external.
+	if b.pendingLocalChanges > 0 {
+		b.pendingLocalChanges--
+	} else if msg.fingerprint != b.lastFingerprint {
+		b.undo.clear()
+	}
+	b.lastFingerprint = msg.fingerprint
 
 	// Cache the full issue list and blocked IDs so filter steps can be rebuilt
 	// from all issues without losing the lock icon indicator between poll ticks.
@@ -530,6 +538,7 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 // push undo, update status, remove from source, add to target, shift focus, update layout.
 // The caller is responsible for persisting the change (persistMove vs persistClose).
 func (b *board) applyColumnMove(cd card, result *moveResult) {
+	b.pendingLocalChanges++
 	b.undo.push(undoEntry{
 		kind: undoMove,
 		move: &moveMsg{
@@ -569,6 +578,8 @@ func (b *board) handlePriority(msg priorityMsg) tea.Cmd {
 	if newPriority < 0 {
 		return nil // already at boundary
 	}
+
+	b.pendingLocalChanges++
 
 	// Record old priority before mutating so the user can undo the change.
 	b.undo.push(undoEntry{
@@ -622,6 +633,8 @@ func (b *board) applyUndoMove(lastMove *moveMsg) tea.Cmd {
 		return nil
 	}
 
+	b.pendingLocalChanges++
+
 	// Remove the card from where it landed (result.source = current location)
 	if idx := findCardIndex(b.cols[result.source].list.Items(), result.cardID); idx >= 0 {
 		b.cols[result.source].list.RemoveItem(idx)
@@ -654,6 +667,7 @@ func (b *board) applyUndoPriority(entry undoEntry) tea.Cmd {
 	if idx < 0 {
 		return nil // card no longer in this column (external change)
 	}
+	b.pendingLocalChanges++
 	items[idx].(card).issue.Priority = entry.oldPriority
 	targetIssue := items[idx].(card).issue
 
@@ -673,6 +687,7 @@ func (b *board) applyUndoPriority(entry undoEntry) tea.Cmd {
 func (b *board) applyUndoEdit(oldIssue *beadslite.Issue) tea.Cmd {
 	col := statusToColumn[oldIssue.Status]
 	if idx := findCardIndex(b.cols[col].list.Items(), oldIssue.ID); idx >= 0 {
+		b.pendingLocalChanges++
 		b.cols[col].list.SetItem(idx, card{issue: oldIssue})
 		return persistUpdate(b.store, oldIssue)
 	}
@@ -681,6 +696,7 @@ func (b *board) applyUndoEdit(oldIssue *beadslite.Issue) tea.Cmd {
 
 // applyUndoDelete re-creates a card that was deleted by the user.
 func (b *board) applyUndoDelete(issue *beadslite.Issue) tea.Cmd {
+	b.pendingLocalChanges++
 	col := statusToColumn[issue.Status]
 	items := b.cols[col].list.Items()
 	items = append(items, card{issue: issue})
@@ -701,6 +717,7 @@ func (b *board) handleDelete(msg deleteMsg) tea.Cmd {
 			issue: &snapshot,
 		})
 	}
+	b.pendingLocalChanges++
 	return persistDelete(b.store, msg.id)
 }
 
@@ -717,6 +734,8 @@ func (b *board) handleSave(msg saveMsg) tea.Cmd {
 		// This shouldn't happen — NewIssue always sets an ID
 		return nil
 	}
+
+	b.pendingLocalChanges++
 
 	// Check if this is an edit (issue already exists in a column)
 	if ci, ii, ok := findCardInBoard(b.cols, msg.issue.ID); ok {

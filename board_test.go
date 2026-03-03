@@ -361,22 +361,122 @@ func TestUndoLastMove_UndoDelete(t *testing.T) {
 	}
 }
 
-func TestUndoStack_ClearedOnRefresh(t *testing.T) {
+func TestUndoStack_PreservedOnNoOpRefresh(t *testing.T) {
 	b := newTestBoard(t)
 
 	// Put something on the undo stack.
 	b.undo.push(undoEntry{kind: undoMove})
 	b.undo.push(undoEntry{kind: undoPriority})
 
-	if len(b.undo) != 2 {
-		t.Fatalf("undo stack len = %d, want 2 before refresh", len(b.undo))
-	}
+	// Simulate a no-op refresh (same fingerprint as initial state).
+	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil, fingerprint: b.lastFingerprint})
 
-	// Simulate a refresh arriving.
-	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil})
+	if len(b.undo) != 2 {
+		t.Errorf("undo stack len = %d after no-op refresh, want 2 (preserved)", len(b.undo))
+	}
+}
+
+func TestUndoStack_ClearedOnExternalChange(t *testing.T) {
+	b := newTestBoard(t)
+
+	// Put something on the undo stack.
+	b.undo.push(undoEntry{kind: undoMove})
+
+	// Simulate a refresh with a different fingerprint (external change).
+	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil, fingerprint: 99999})
 
 	if len(b.undo) != 0 {
-		t.Errorf("undo stack len = %d after refresh, want 0", len(b.undo))
+		t.Errorf("undo stack len = %d after external change, want 0 (cleared)", len(b.undo))
+	}
+}
+
+func TestUndoStack_PreservedAfterLocalChange(t *testing.T) {
+	b := newTestBoard(t)
+
+	// Simulate a local move (increments pendingLocalChanges via applyColumnMove).
+	issue := makeIssue("bl-local", "Local Move", beadslite.StatusBacklog)
+	b.cols[colBacklog].SetItems([]list.Item{card{issue: issue}})
+	b.cols[b.focused].Blur()
+	b.focused = colBacklog
+	b.cols[colBacklog].Focus()
+	b.handleMove(moveMsg{card: card{issue: issue}, source: colBacklog, target: colTodo})
+
+	if len(b.undo) == 0 {
+		t.Fatal("undo stack should have an entry after local move")
+	}
+
+	// Refresh arrives with different fingerprint (reflecting our local change).
+	// pendingLocalChanges > 0, so undo should be preserved.
+	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil, fingerprint: 12345})
+
+	if len(b.undo) == 0 {
+		t.Error("undo stack was cleared after local-change refresh, should be preserved")
+	}
+
+	// Second refresh with same fingerprint (no further changes).
+	// pendingLocalChanges should have drained; same fingerprint → preserved.
+	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil, fingerprint: 12345})
+
+	if len(b.undo) == 0 {
+		t.Error("undo stack was cleared on second no-op refresh, should be preserved")
+	}
+}
+
+// Reproduces the specific scenario: move card from Backlog → Todo when Todo
+// already has a card, then undo. The card should return to Backlog.
+func TestUndoLastMove_BacklogToTodoWithExistingCard(t *testing.T) {
+	b := newTestBoard(t)
+
+	// Setup: card A in Backlog, card B already in Todo.
+	cardA := makeIssue("bl-a", "Card A", beadslite.StatusBacklog)
+	cardB := makeIssue("bl-b", "Card B", beadslite.StatusTodo)
+	b.cols[colBacklog].SetItems([]list.Item{card{issue: cardA}})
+	b.cols[colTodo].SetItems([]list.Item{card{issue: cardB}})
+	b.cols[b.focused].Blur()
+	b.focused = colBacklog
+	b.cols[colBacklog].Focus()
+
+	// Simulate: move card A from Backlog to Todo.
+	cmd := b.handleMove(moveMsg{card: card{issue: cardA}, source: colBacklog, target: colTodo})
+	if cmd == nil {
+		t.Fatal("handleMove should return a persist command")
+	}
+
+	// Verify card moved: Backlog empty, Todo has 2 cards.
+	if len(b.cols[colBacklog].list.Items()) != 0 {
+		t.Fatalf("backlog has %d items after move, want 0", len(b.cols[colBacklog].list.Items()))
+	}
+	if len(b.cols[colTodo].list.Items()) != 2 {
+		t.Fatalf("todo has %d items after move, want 2", len(b.cols[colTodo].list.Items()))
+	}
+
+	// Undo: card A should go back to Backlog.
+	cmd = b.undoLast()
+	if cmd == nil {
+		t.Fatal("undoLast should return a persist command")
+	}
+
+	// Card A should be back in Backlog.
+	backlogItems := b.cols[colBacklog].list.Items()
+	if len(backlogItems) != 1 {
+		t.Fatalf("backlog has %d items after undo, want 1", len(backlogItems))
+	}
+	if backlogItems[0].(card).issue.ID != "bl-a" {
+		t.Errorf("backlog card ID = %q, want bl-a", backlogItems[0].(card).issue.ID)
+	}
+
+	// Card B should still be in Todo, alone.
+	todoItems := b.cols[colTodo].list.Items()
+	if len(todoItems) != 1 {
+		t.Fatalf("todo has %d items after undo, want 1", len(todoItems))
+	}
+	if todoItems[0].(card).issue.ID != "bl-b" {
+		t.Errorf("todo card ID = %q, want bl-b", todoItems[0].(card).issue.ID)
+	}
+
+	// Focus should follow back to Backlog.
+	if b.focused != colBacklog {
+		t.Errorf("focused = %d, want %d (colBacklog)", b.focused, colBacklog)
 	}
 }
 
@@ -1094,7 +1194,7 @@ func TestApplyRefresh_BlockedCardsPropagated(t *testing.T) {
 	}
 }
 
-func TestApplyRefresh_UndoStackCleared(t *testing.T) {
+func TestApplyRefresh_UndoStackClearedOnExternalChange(t *testing.T) {
 	b := newTestBoard(t)
 
 	// Seed the undo stack with entries that will be stale after refresh.
@@ -1105,10 +1205,11 @@ func TestApplyRefresh_UndoStackCleared(t *testing.T) {
 		t.Fatalf("undo stack len = %d before refresh, want 2", len(b.undo))
 	}
 
-	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil})
+	// Refresh with a different fingerprint (external change).
+	b.applyRefresh(refreshMsg{issues: nil, blockedIDs: nil, fingerprint: 99999})
 
 	if len(b.undo) != 0 {
-		t.Errorf("undo stack len = %d after refresh, want 0", len(b.undo))
+		t.Errorf("undo stack len = %d after external change refresh, want 0", len(b.undo))
 	}
 }
 

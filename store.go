@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"hash/fnv"
 	"sort"
 	"time"
 
@@ -121,7 +123,25 @@ func fetchRefresh(store *beadslite.Store) tea.Msg {
 		return errMsg{err}
 	}
 	blockedIDs := computeBlockedIDs(store, issues)
-	return refreshMsg{issues: issues, blockedIDs: blockedIDs}
+	return refreshMsg{
+		issues:      issues,
+		blockedIDs:  blockedIDs,
+		fingerprint: issueFingerprint(issues),
+	}
+}
+
+// issueFingerprint computes a fast hash over the mutable fields of an issue set.
+// Used to detect external changes between poll ticks — if the fingerprint hasn't
+// changed, no external write occurred and the undo stack is safe to keep.
+func issueFingerprint(issues []*beadslite.Issue) uint64 {
+	h := fnv.New64a()
+	for _, iss := range issues {
+		// ID + Status + Priority + UpdatedAt covers all fields that affect
+		// board rendering. Title/Description changes also update UpdatedAt.
+		fmt.Fprintf(h, "%s:%s:%d:%d\n",
+			iss.ID, iss.Status, iss.Priority, iss.UpdatedAt.UnixNano())
+	}
+	return h.Sum64()
 }
 
 // computeBlockedIDs returns the set of issue IDs that have at least one
