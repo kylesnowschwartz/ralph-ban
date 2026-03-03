@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -134,6 +135,10 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if b.resolution != nil {
 			b.resolution.width = msg.Width
 			b.resolution.height = msg.Height
+		}
+		if b.depLinker != nil {
+			b.depLinker.width = msg.Width
+			b.depLinker.height = msg.Height
 		}
 		b.updatePan()
 		b.resizeColumns()
@@ -1407,6 +1412,23 @@ func formatDeps(deps []depEntry) string {
 	return strings.Join(lines, "\n")
 }
 
+// relativeTime formats t as a human-readable duration relative to now:
+// "just now" for < 1 minute, "Xm ago" for < 1 hour, "Xh ago" for < 1 day,
+// "Xd ago" for >= 1 day.
+func relativeTime(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
 // zoomState holds the data needed to render the zoom peek overlay.
 // Dependencies are resolved at open time so zoomView() is a pure renderer.
 // colIdx records which column the card came from, needed for e-to-edit.
@@ -1454,15 +1476,8 @@ func (b *board) zoomView() string {
 		Foreground(lipgloss.Color("212")).
 		Render(i.Title)
 
-	desc := faintStyle.Render("(no description)")
-	if i.Description != "" {
-		desc = lipgloss.NewStyle().Width(56).Render(i.Description)
-	}
-
 	fields := lipgloss.JoinVertical(lipgloss.Left,
 		title,
-		"",
-		desc,
 		"",
 		labelStyle.Render("ID")+"  "+i.ID,
 		labelStyle.Render("Status")+"  "+string(i.Status),
@@ -1476,6 +1491,13 @@ func (b *board) zoomView() string {
 			labelStyle.Render("Assigned")+"  "+i.AssignedTo,
 		)
 	}
+
+	// Relative timestamps for created and updated.
+	fields = lipgloss.JoinVertical(lipgloss.Left,
+		fields,
+		labelStyle.Render("Created")+"  "+relativeTime(i.CreatedAt),
+		labelStyle.Render("Updated")+"  "+relativeTime(i.UpdatedAt),
+	)
 
 	if len(b.zoom.blockedBy) > 0 {
 		fields = lipgloss.JoinVertical(lipgloss.Left,
@@ -1509,11 +1531,28 @@ func (b *board) zoomView() string {
 		panelWidth = b.termWidth - 4
 	}
 
+	// Inner content width: subtract border (2) + padding (2*2).
+	innerWidth := panelWidth - 6
+
+	// Description block below the metadata, separated by a divider.
+	// Only rendered when the issue has a description.
+	if i.Description != "" {
+		divider := faintStyle.Render(strings.Repeat("─", innerWidth))
+		desc := lipgloss.NewStyle().Width(innerWidth).Render(i.Description)
+		fields = lipgloss.JoinVertical(lipgloss.Left,
+			fields,
+			"",
+			divider,
+			"",
+			desc,
+		)
+	}
+
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("212")).
 		Padding(1, 2).
-		Width(panelWidth - 6) // subtract border (2) + padding (2*2)
+		Width(innerWidth)
 
 	rendered := panelStyle.Render(fields)
 

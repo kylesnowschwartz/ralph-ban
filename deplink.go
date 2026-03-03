@@ -129,8 +129,8 @@ func (d depLinker) Update(msg tea.Msg) (depLinker, tea.Cmd) {
 }
 
 func (d depLinker) View() string {
-	listWidth := 60
-	listHeight := 20
+	listWidth := min(60, d.width-4)
+	listHeight := min(20, d.height-6)
 	d.list.SetSize(listWidth-4, listHeight-4)
 
 	// Hint line under the list.
