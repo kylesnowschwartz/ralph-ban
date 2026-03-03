@@ -26,7 +26,8 @@ func TestBuildClaudeArgs(t *testing.T) {
 			},
 			wantAbsent: []string{
 				"--model",
-				"--plugin-dir",
+				// --plugin-dir presence depends on whether .ralph-ban/plugin/ exists
+				// on disk — tested separately in TestBuildClaudeArgs_PluginDir.
 				"--settings",
 				"--dangerously-skip-permissions",
 				"--resume",
@@ -133,6 +134,47 @@ func TestSplitAtDoubleDash(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildClaudeArgs_PluginDir(t *testing.T) {
+	t.Run("present when extracted plugin exists", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+
+		// Create the plugin manifest so buildClaudeArgs finds it.
+		pluginDir := filepath.Join(dir, ralphBanDir, "plugin", ".claude-plugin")
+		if err := os.MkdirAll(pluginDir, 0755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"ralph-ban"}`), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		args := buildClaudeArgs("", "", "", nil)
+		found := false
+		for _, a := range args {
+			if a == "--plugin-dir" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected --plugin-dir in args when plugin exists, got: %v", args)
+		}
+	})
+
+	t.Run("absent when no extracted plugin", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+
+		args := buildClaudeArgs("", "", "", nil)
+		for _, a := range args {
+			if a == "--plugin-dir" {
+				t.Errorf("expected no --plugin-dir when plugin absent, got: %v", args)
+				break
+			}
+		}
+	})
 }
 
 func TestSetConfigField_CreatesNewFile(t *testing.T) {

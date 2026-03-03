@@ -13,10 +13,25 @@ require_bl
 # Save initial snapshot for future diffs
 save_snapshot
 
+# Load beads-lite onboarding instructions (commands, workflow, claiming, epics).
+# Prepended to agent context so every session starts with bl knowledge.
+onboarding=""
+onboarding_file="$SCRIPT_DIR/lib/bl-onboarding.md"
+if [ -f "$onboarding_file" ]; then
+  onboarding=$(cat "$onboarding_file")
+fi
+
 # Helper: output additionalContext (agent context) + systemMessage (user-visible) and exit.
+# When onboarding text is available, it's prepended to the agent context so the
+# agent sees bl instructions before the board status.
 emit_context() {
   local agent_ctx="$1"
   local user_msg="${2:-$1}"
+  if [ -n "$onboarding" ]; then
+    agent_ctx="${onboarding}
+
+${agent_ctx}"
+  fi
   jq -n --arg ctx "$agent_ctx" --arg msg "$user_msg" \
     '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}, systemMessage: $msg}'
 }

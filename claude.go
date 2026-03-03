@@ -80,14 +80,21 @@ Examples:
 }
 
 // buildClaudeArgs constructs the argument list for the claude binary.
-// The --agent flag delegates agent loading to Claude Code, which reads
-// agents/orchestrator.md from the installed ralph-ban plugin and applies
-// its frontmatter (model, isolation, etc.).
-// Plugin discovery, hooks, and settings are handled by Claude Code's native
-// plugin system — no --plugin-dir or --settings flags needed.
+// --plugin-dir points Claude Code at the extracted plugin under .ralph-ban/plugin/,
+// which contains hooks, agents, and settings. This replaces the old approach of
+// installing via `claude plugin marketplace add` / `claude plugin install`.
+// If the extracted plugin doesn't exist (old installs), --plugin-dir is skipped
+// and Claude Code falls back to the plugin cache.
 // passthrough args are appended last — these come from after -- in the CLI.
 func buildClaudeArgs(model, prompt, resume string, passthrough []string) []string {
 	var args []string
+
+	// Load plugin from extracted directory if it exists.
+	pluginDir := filepath.Join(projectRoot(), ralphBanDir, "plugin")
+	pluginManifest := filepath.Join(pluginDir, ".claude-plugin", "plugin.json")
+	if fileExists(pluginManifest) {
+		args = append(args, "--plugin-dir", pluginDir)
+	}
 
 	// Resuming a session: pass --resume and skip --agent (the resumed session
 	// already has its agent context). Also skip the default prompt.

@@ -155,15 +155,62 @@ func TestSeedStarterCards_PrioritySorting(t *testing.T) {
 	}
 }
 
-// --- installPlugin ---
+// --- extractPlugin ---
 
-func TestInstallPlugin_NoClaude(t *testing.T) {
-	// Point PATH at an empty temp dir so exec.LookPath("claude") fails.
-	emptyDir := t.TempDir()
-	t.Setenv("PATH", emptyDir)
+func TestExtractPlugin_CreatesFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "plugin")
 
-	if installPlugin() {
-		t.Error("installPlugin() returned true when claude is not on PATH")
+	if err := extractPlugin(dir); err != nil {
+		t.Fatalf("extractPlugin: %v", err)
+	}
+
+	// Plugin manifest must exist.
+	manifest := filepath.Join(dir, ".claude-plugin", "plugin.json")
+	if !fileExists(manifest) {
+		t.Error("plugin.json not extracted")
+	}
+
+	// At least one agent must exist.
+	orchestrator := filepath.Join(dir, "agents", "orchestrator.md")
+	if !fileExists(orchestrator) {
+		t.Error("agents/orchestrator.md not extracted")
+	}
+
+	// At least one hook script must exist and be executable.
+	hookScript := filepath.Join(dir, "hooks", "session-start.sh")
+	info, err := os.Stat(hookScript)
+	if err != nil {
+		t.Fatalf("hooks/session-start.sh not extracted: %v", err)
+	}
+	if info.Mode()&0111 == 0 {
+		t.Errorf("hooks/session-start.sh not executable: %v", info.Mode())
+	}
+}
+
+func TestExtractPlugin_OverwritesOnRerun(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "plugin")
+
+	if err := extractPlugin(dir); err != nil {
+		t.Fatalf("first extractPlugin: %v", err)
+	}
+
+	// Tamper with an extracted file.
+	manifest := filepath.Join(dir, ".claude-plugin", "plugin.json")
+	if err := os.WriteFile(manifest, []byte("tampered"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Re-extract should overwrite.
+	if err := extractPlugin(dir); err != nil {
+		t.Fatalf("second extractPlugin: %v", err)
+	}
+
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) == "tampered" {
+		t.Error("extractPlugin did not overwrite tampered file")
 	}
 }
 

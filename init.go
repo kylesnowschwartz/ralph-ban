@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 
 	beadslite "github.com/kylesnowschwartz/beads-lite"
 )
@@ -96,8 +97,12 @@ func runInit(args []string) {
 		}
 	}
 
-	// --- Step 4: Install Claude Code plugin ---
-	pluginInstalled := installPlugin()
+	// --- Step 4: Extract Claude Code plugin ---
+	pluginDir := filepath.Join(ralphBanDir, "plugin")
+	if err := extractPlugin(pluginDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to extract plugin: %v\n", err)
+		os.Exit(1)
+	}
 
 	// --- Step 5: Report results ---
 	fmt.Println("Initialized ralph-ban:")
@@ -116,14 +121,7 @@ func runInit(args []string) {
 			fmt.Printf("  seeded %d starter cards in Backlog\n", seeded)
 		}
 	}
-	if pluginInstalled {
-		fmt.Println("  claude plugin  ralph-ban hooks + agents installed")
-	} else {
-		fmt.Println()
-		fmt.Println("Claude Code plugin (optional):")
-		fmt.Println("  claude plugin marketplace add kylesnowschwartz/ralph-ban")
-		fmt.Println("  claude plugin install ralph-ban@ralph-ban")
-	}
+	fmt.Printf("  %s/   hooks + agents extracted\n", pluginDir)
 
 	fmt.Println()
 	fmt.Println("Run 'ralph-ban' to open the board.")
@@ -132,27 +130,37 @@ func runInit(args []string) {
 	}
 }
 
-// installPlugin attempts to install the ralph-ban Claude Code plugin via the
-// claude CLI. Both commands are idempotent — they succeed silently if the
-// marketplace or plugin is already registered.
+// extractPlugin writes the embedded plugin files to destDir.
+// The embedded FS (pluginFS) contains .claude-plugin/, agents/, and hooks/ —
+// everything Claude Code needs to load the plugin via --plugin-dir.
 //
-// Returns true if the claude CLI was found and both commands were attempted,
-// false if claude is not on PATH (caller prints manual instructions instead).
-func installPlugin() bool {
-	claudePath, err := exec.LookPath("claude")
-	if err != nil {
-		return false
-	}
+// Always overwrites existing files so re-init keeps hooks and agents in sync
+// with the binary version. config.json lives outside destDir and is never touched.
+func extractPlugin(destDir string) error {
+	return fs.WalkDir(pluginFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 
-	// Add the marketplace (idempotent — silently succeeds if already added).
-	addCmd := exec.Command(claudePath, "plugin", "marketplace", "add", "kylesnowschwartz/ralph-ban")
-	addCmd.CombinedOutput() //nolint:errcheck // ignore error — may already exist
+		target := filepath.Join(destDir, path)
 
-	// Install the plugin (idempotent — silently succeeds if already installed).
-	installCmd := exec.Command(claudePath, "plugin", "install", "ralph-ban@ralph-ban", "--scope", "user")
-	installCmd.CombinedOutput() //nolint:errcheck // ignore error — may already exist
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
 
-	return true
+		data, err := pluginFS.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read embedded %s: %w", path, err)
+		}
+
+		// Shell scripts need executable permission.
+		perm := os.FileMode(0644)
+		if strings.HasSuffix(path, ".sh") {
+			perm = 0755
+		}
+
+		return os.WriteFile(target, data, perm)
+	})
 }
 
 // writeDefaultConfig serializes defaultConfig to the given path.
