@@ -1,8 +1,10 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	beadslite "github.com/kylesnowschwartz/beads-lite"
 )
 
@@ -18,7 +20,7 @@ func TestCardImplementsListItem(t *testing.T) {
 	if c.Title() != "Test Card" {
 		t.Errorf("Title() = %q, want %q", c.Title(), "Test Card")
 	}
-	if want := iconBug + " P1 · bl-test"; c.Description() != want {
+	if want := issueTypeIcon(beadslite.IssueTypeBug) + " P1 · bl-test"; c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
 	// FilterValue includes title + description so search matches both.
@@ -50,7 +52,7 @@ func TestCardDescriptionShowsAssignee(t *testing.T) {
 	}
 	c := card{issue: issue}
 
-	want := iconTask + " P2 · bl-test @worker-assignee"
+	want := issueTypeIcon(beadslite.IssueTypeTask) + " P2 · bl-test @worker-assignee"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
@@ -65,7 +67,7 @@ func TestCardDescriptionNoAssignee(t *testing.T) {
 	}
 	c := card{issue: issue}
 
-	want := iconFeature + " P3 · bl-test"
+	want := issueTypeIcon(beadslite.IssueTypeFeature) + " P3 · bl-test"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
@@ -80,7 +82,8 @@ func TestCardDescriptionBlockedShowsLockIcon(t *testing.T) {
 	}
 	c := card{issue: issue, blocked: true}
 
-	want := iconLock + "  " + iconTask + " P2 · bl-test"
+	styledLock := lipgloss.NewStyle().Foreground(colorIconLock).Render(iconLock)
+	want := styledLock + "  " + issueTypeIcon(beadslite.IssueTypeTask) + " P2 · bl-test"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
@@ -95,12 +98,16 @@ func TestCardDescriptionEpicIcon(t *testing.T) {
 	}
 	c := card{issue: issue}
 
-	want := iconEpic + " P0 · bl-epic"
+	want := issueTypeIcon(beadslite.IssueTypeEpic) + " P0 · bl-epic"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
 }
 
+// TestIssueTypeIcon verifies each issue type maps to the correct glyph.
+// We check that the output contains the raw icon rather than matching exact
+// ANSI sequences, so the test validates the mapping without being coupled
+// to lipgloss's escape code format.
 func TestIssueTypeIcon(t *testing.T) {
 	tests := []struct {
 		issueType beadslite.IssueType
@@ -113,8 +120,8 @@ func TestIssueTypeIcon(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := issueTypeIcon(tt.issueType)
-		if got != tt.wantIcon {
-			t.Errorf("issueTypeIcon(%q) = %q, want %q", tt.issueType, got, tt.wantIcon)
+		if !strings.Contains(got, tt.wantIcon) {
+			t.Errorf("issueTypeIcon(%q) = %q, does not contain %q", tt.issueType, got, tt.wantIcon)
 		}
 	}
 }

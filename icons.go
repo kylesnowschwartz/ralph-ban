@@ -6,10 +6,10 @@ package main
 
 const (
 	// Card type icons — shown on the description line of each card.
-	iconTask    = "󰄬" // nf-md-check_circle_outline
+	iconTask    = "" // Bookmark
 	iconBug     = "󰃤" // nf-md-bug
 	iconFeature = "󰙴" // nf-md-star_circle
-	iconEpic    = "󱈸" // nf-md-layers_triple
+	iconEpic    = "󱐌" // Lightning Bolt
 
 	// iconLock prefixes blocked cards so the constraint is visible at a glance.
 	iconLock = "󰌾" // nf-md-lock

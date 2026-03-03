@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 
+	"charm.land/lipgloss/v2"
 	beadslite "github.com/kylesnowschwartz/beads-lite"
 )
 
@@ -26,24 +28,29 @@ func (c card) Description() string {
 		base += " @" + c.issue.AssignedTo
 	}
 	if c.blocked {
-		return iconLock + "  " + base
+		lock := lipgloss.NewStyle().Foreground(colorIconLock).Render(iconLock)
+		return lock + "  " + base
 	}
 	return base
 }
 
-// issueTypeIcon returns the icon constant for the given issue type.
-// These condense type information into a single glyph so the description
-// line stays compact without spelling out "task", "bug", etc.
-// Icon definitions live in icons.go.
+// issueTypeIcon returns a colored icon for the given issue type.
+// Each type gets a distinct color so the glyph communicates type at a glance.
+// Icon definitions live in icons.go; colors live in theme.go.
 func issueTypeIcon(t beadslite.IssueType) string {
+	var icon string
+	var fg color.Color
+
 	switch t {
 	case beadslite.IssueTypeBug:
-		return iconBug
+		icon, fg = iconBug, colorIconBug
 	case beadslite.IssueTypeFeature:
-		return iconFeature
+		icon, fg = iconFeature, colorIconFeature
 	case beadslite.IssueTypeEpic:
-		return iconEpic
+		icon, fg = iconEpic, colorIconEpic
 	default: // IssueTypeTask and any unknown types
-		return iconTask
+		icon, fg = iconTask, colorIconTask
 	}
+
+	return lipgloss.NewStyle().Foreground(fg).Render(icon)
 }

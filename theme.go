@@ -12,6 +12,14 @@ var (
 	colorStale   = lipgloss.Color("202") // card title tint for cards aged 3+ days
 	colorZoom    = lipgloss.Color("212") // zoom overlay title and border
 	colorWarning = lipgloss.Color("214") // card title tint for cards aged 1–3 days; filter active highlight
+
+	// Card type icon colors — each type gets a distinct color so the icon
+	// communicates type at a glance, without reading the label.
+	colorIconTask    = lipgloss.Color("35")  // green
+	colorIconBug     = lipgloss.Color("214") // orange
+	colorIconFeature = lipgloss.Color("35")  // green (same as task — both are "work")
+	colorIconEpic    = lipgloss.Color("135") // purple
+	colorIconLock    = lipgloss.Color("243") // grey — subdued, informational
 )
 
 // Style builders.
