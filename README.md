@@ -1,59 +1,54 @@
 # ralph-ban
 
-A terminal kanban board built with [bubbletea](https://github.com/charmbracelet/bubbletea), backed by [beads-lite](https://github.com/kylesnowschwartz/beads-lite)'s SQLite database.
+A terminal kanban board built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), backed by [beads-lite](https://github.com/kylesnowschwartz/beads-lite)'s SQLite database.
 
-```
-╭───────────────────────╮
-│    Backlog            │     To Do                    Doing                    Review
-│                       │
-│ No items.             │    Make a MIT License       make a Readme          No items.
-│                       │    P2 task · bl-5d8x        P2 task · bl-71yd
-│                       │
-│                       │    Make a VERSION fil…
-│                       │    P2 task · bl-yweo
-│                       │
-╰───────────────────────╯
-                             [  | *Backlog* | To Do | Doing | Review>]
+Five columns (Backlog, To Do, Doing, Review, Done) with vim-style navigation. The board pans horizontally when the terminal is too narrow to fit all columns. Cards sync across the `bl` CLI, Claude Code hooks, and other TUI sessions via 2-second polling.
 
-n new · e edit · ⏎ move → · ⌫ move ← · z zoom · ? more
-```
-
-Five columns (Backlog, To Do, Doing, Review, Done) with vim-style navigation. The board pans horizontally when the terminal is too narrow to fit all columns.
-
-Cards are shared — the `bl` CLI, Claude Code hooks, and other TUI sessions all read and write the same SQLite database. The TUI polls every 2 seconds to stay in sync.
+<p align="center">
+  <img src="demo.png" alt="ralph-ban board" width="600" />
+</p>
 
 ## Install
 
-Requires Go 1.25+ and a [beads-lite](https://github.com/kylesnowschwartz/beads-lite) database.
+Requires Go 1.25+.
 
-```sh
+```bash
 go install github.com/kylesnowschwartz/ralph-ban@latest
 ```
 
 Or build from source:
 
-```sh
+```bash
 git clone git@github.com:kylesnowschwartz/ralph-ban.git
 cd ralph-ban
 go build .
 ```
 
-Initialize a beads-lite database if you don't have one:
+## Usage
 
-```sh
-bl init
+Initialize a project, then open the board:
+
+```bash
+ralph-ban init --seed    # create .ralph-ban/ config + .beads-lite/ database
+ralph-ban                # open the board
 ```
 
-Then run the board:
+### Claude Code orchestrator
 
-```sh
-ralph-ban
-# or: go run .
+ralph-ban ships a Claude Code plugin with hooks and agents. `ralph-ban init` extracts them into `.ralph-ban/plugin/` and `.claude/agents/`.
+
+```bash
+ralph-ban claude                    # batch mode (pauses for human merge approval)
+ralph-ban claude --auto             # drain the board without intervention
+ralph-ban claude --continue         # continue most recent session
+ralph-ban claude --resume           # interactive session picker
 ```
 
-## Keybindings
+### Keybindings
 
-### Navigation
+`?` toggles full help. `Ctrl+z` suspends the TUI (resume with `fg`).
+
+**Navigation**
 
 | Key | Action |
 |-----|--------|
@@ -61,45 +56,31 @@ ralph-ban
 | `j` / `↓` | Move cursor down |
 | `k` / `↑` | Move cursor up |
 | `l` / `→` | Focus right column |
+| `/` | Search cards |
 
-### Cards
+**Cards**
 
 | Key | Action |
 |-----|--------|
 | `n` | New card |
 | `e` | Edit card |
 | `d` | Delete (press twice to confirm) |
-| `z` | Zoom card (peek detail, `e` to edit) |
+| `z` | Zoom card detail |
 | `Enter` | Move card right |
 | `Backspace` | Move card left |
 | `u` | Undo last move |
 | `+` / `-` | Change priority |
-| `Ctrl+click` | Move card to clicked column |
-
-### General
-
-| Key | Action |
-|-----|--------|
-| `?` | Toggle full help |
-| `Ctrl+z` | Suspend (resume with `fg`) |
-| `Ctrl+c` | Quit |
-| `Esc` | Close overlay / cancel |
-
-## Agent Integration
-
-ralph-ban doubles as a coordination surface for Claude Code agents. An orchestrator reads the board to plan work, spawns workers into isolated git worktrees, and routes completed cards through review — all gated behind human approval before merge.
-
-See [CLAUDE.md](CLAUDE.md) for architecture details and the `agents/` directory for agent templates.
 
 ## Development
 
-Uses a `go.work` workspace with `../beads-lite` for local development. Changes to beads-lite types are immediately available without publishing.
+Requires [just](https://github.com/casey/just) for task running. Uses a `go.work` workspace with `../beads-lite` for local development.
 
-```sh
-go build ./...          # build
-go test ./...           # test
-just test               # run tests via justfile
-just dump-view          # render one frame to stdout (headless testing)
+```bash
+just build     # build
+just test      # run tests
+just run       # build and launch TUI
+just lint      # vet + staticcheck
+just release   # tag, push, create GitHub release
 ```
 
 ## License

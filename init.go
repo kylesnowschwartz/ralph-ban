@@ -116,23 +116,23 @@ func runInit(args []string) {
 
 	// --- Step 6: Report results ---
 	fmt.Println("Initialized ralph-ban:")
-	fmt.Printf("  %s/          board configuration\n", ralphBanDir)
+	fmt.Printf("  %-24s  %s\n", ralphBanDir+"/", "board configuration")
 	if configCreated {
-		fmt.Printf("  %s  WIP limits: doing=3, review=2\n", configPath)
+		fmt.Printf("  %-24s  %s\n", configPath, "WIP limits: doing=3, review=2")
 	} else {
-		fmt.Printf("  %s  (already exists, kept as-is)\n", configPath)
+		fmt.Printf("  %-24s  %s\n", configPath, "(already exists, kept as-is)")
 	}
-	fmt.Printf("  %s/       task database\n", beadsDir)
+	fmt.Printf("  %-24s  %s\n", beadsDir+"/", "task database")
 	if dbExisted {
-		fmt.Printf("  %s     (existing database adopted)\n", dbPath)
+		fmt.Printf("  %-24s  %s\n", dbPath, "(existing database adopted)")
 	} else {
-		fmt.Printf("  %s     (new database created)\n", dbPath)
+		fmt.Printf("  %-24s  %s\n", dbPath, "(new database created)")
 		if seeded > 0 {
-			fmt.Printf("  seeded %d starter cards in Backlog\n", seeded)
+			fmt.Printf("  %-24s  seeded %d starter cards in Backlog\n", "", seeded)
 		}
 	}
-	fmt.Printf("  %s/   hooks + agents extracted\n", pluginDir)
-	fmt.Printf("  .claude/agents/    agents installed for --agent discovery\n")
+	fmt.Printf("  %-24s  %s\n", pluginDir+"/", "hooks + agents extracted")
+	fmt.Printf("  %-24s  %s\n", ".claude/agents/", "agents installed for --agent discovery")
 
 	fmt.Println()
 	fmt.Println("Run 'ralph-ban' to open the board.")
