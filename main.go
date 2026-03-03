@@ -18,12 +18,7 @@ Commands:
   (default)    open the TUI kanban board
   init         initialize a new project in the current directory
   claude       start a Claude Code orchestrator session
-  snapshot     export board state as JSON or ASCII
 
-Board flags:
-`)
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, `
 Quick start:
   ralph-ban init --seed                         # new project with starter cards
   ralph-ban                                     # open the board
@@ -34,10 +29,6 @@ Run the orchestrator:
   ralph-ban claude --continue                   # continue most recent session
   ralph-ban claude --resume                     # interactive session picker
   ralph-ban claude --resume abc123              # resume specific session
-
-Snapshots:
-  ralph-ban snapshot                            # JSON to stdout
-  ralph-ban snapshot --format ascii             # ASCII board to stdout
 
 Run 'ralph-ban <command> --help' for all flags.
 `)
