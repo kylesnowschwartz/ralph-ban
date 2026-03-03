@@ -14,7 +14,7 @@ type card struct {
 }
 
 func (c card) Title() string       { return c.issue.Title }
-func (c card) FilterValue() string { return c.issue.Title }
+func (c card) FilterValue() string { return c.issue.Title + " " + c.issue.Description }
 
 // Description shows priority, type icon, ID, and assignee (if claimed) on the second line.
 // Blocked cards get a lock icon prefix so the constraint is visible without opening the detail.

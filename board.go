@@ -1267,9 +1267,13 @@ func (b *board) cancelSearch() {
 	b.view = viewBoard
 }
 
-// dismissSearch exits search mode without restoring the full list. The filter is transient —
-// the next 2-second refresh tick replaces the filtered view with full data from SQLite.
+// dismissSearch exits search mode and immediately restores the full item set.
+// Without the restore, filtered items persist for up to 2 seconds until the
+// next poll tick replaces them — a visible glitch.
 func (b *board) dismissSearch() {
+	for i := columnIndex(0); i < numColumns; i++ {
+		b.cols[i].SetItems(b.allItems[i])
+	}
 	b.searchInput.Blur()
 	b.view = viewBoard
 }

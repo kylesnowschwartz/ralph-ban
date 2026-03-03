@@ -21,8 +21,22 @@ func TestCardImplementsListItem(t *testing.T) {
 	if want := "󰃤 P1 · bl-test"; c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
-	if c.FilterValue() != "Test Card" {
-		t.Errorf("FilterValue() = %q, want %q", c.FilterValue(), "Test Card")
+	// FilterValue includes title + description so search matches both.
+	if want := "Test Card "; c.FilterValue() != want {
+		t.Errorf("FilterValue() = %q, want %q", c.FilterValue(), want)
+	}
+}
+
+func TestCardFilterValueIncludesDescription(t *testing.T) {
+	issue := &beadslite.Issue{
+		ID:          "bl-test",
+		Title:       "Fix login",
+		Description: "Token refresh fails after 30 minutes",
+	}
+	c := card{issue: issue}
+	fv := c.FilterValue()
+	if fv != "Fix login Token refresh fails after 30 minutes" {
+		t.Errorf("FilterValue() = %q, want title + space + description", fv)
 	}
 }
 
