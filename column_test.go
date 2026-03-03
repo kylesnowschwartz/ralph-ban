@@ -181,6 +181,15 @@ func TestCardAgeBucketBoundaryExactly3Days(t *testing.T) {
 	}
 }
 
+func TestCardAgeBucketZeroTime(t *testing.T) {
+	// A zero time.Time (the Go default for unset time fields) should classify
+	// as stale rather than fresh — unknown age is safer treated as old.
+	got := cardAgeBucket(time.Time{})
+	if got != ageStale {
+		t.Errorf("cardAgeBucket(zero time) = %d, want ageStale (%d)", got, ageStale)
+	}
+}
+
 // Age-aware delegate rendering tests
 
 // makeCard creates a card with a specific UpdatedAt for testing.

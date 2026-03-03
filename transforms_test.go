@@ -24,6 +24,17 @@ func TestComputeMove_Valid(t *testing.T) {
 	}
 }
 
+func TestComputeMove_SameColumn(t *testing.T) {
+	cd := card{issue: &beadslite.Issue{ID: "bl-1", Status: beadslite.StatusTodo}}
+	result := computeMove(cd, colTodo, colTodo)
+	if result == nil {
+		t.Fatal("same-column move should return a result (caller decides whether to act on it)")
+	}
+	if result.source != result.target {
+		t.Errorf("source = %d, target = %d, expected equal for same-column move", result.source, result.target)
+	}
+}
+
 func TestComputeMove_OutOfBounds(t *testing.T) {
 	cd := card{issue: &beadslite.Issue{ID: "bl-1"}}
 	if computeMove(cd, colDone, colDone+1) != nil {

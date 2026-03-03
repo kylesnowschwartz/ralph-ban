@@ -537,6 +537,43 @@ func TestComputeBlockedIDs(t *testing.T) {
 	}
 }
 
+// TestComputeBlockedIDs_DanglingRefPrevented verifies that the FK constraint
+// prevents dangling dependency references at the database level. The defensive
+// code in computeBlockedIDs handles this case, but the schema defines it out
+// of existence — a dependency cannot point to a non-existent issue.
+func TestComputeBlockedIDs_DanglingRefPrevented(t *testing.T) {
+	store := newTestStore(t)
+
+	issue := makeIssue("bl-dep", "Has dep", beadslite.StatusTodo)
+	if err := store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	// Attempting to add a dependency to a non-existent issue should fail.
+	err := store.AddDependency("bl-dep", "bl-ghost", beadslite.DepBlocks)
+	if err == nil {
+		t.Error("AddDependency to non-existent issue should fail (FK constraint)")
+	}
+}
+
+// TestComputeBlockedIDs_NoDeps verifies that issues with no dependencies
+// produce an empty (or nil) blocked set.
+func TestComputeBlockedIDs_NoDeps(t *testing.T) {
+	store := newTestStore(t)
+
+	issue := makeIssue("bl-free", "No deps", beadslite.StatusTodo)
+	if err := store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	issues, _ := store.ListIssues()
+	blockedIDs := computeBlockedIDs(store, issues)
+
+	if blockedIDs["bl-free"] {
+		t.Error("bl-free should not be blocked (it has no dependencies)")
+	}
+}
+
 // TestCard_Description_Blocked checks that the lock icon appears for blocked cards
 // and is absent for unblocked cards.
 func TestCard_Description_Blocked(t *testing.T) {

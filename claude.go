@@ -162,5 +162,12 @@ func setConfigField(dataDir, key, value string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0644)
+
+	// Atomic write: write to temp file, then rename. os.Rename is atomic on
+	// POSIX, so a crash mid-write leaves the original file intact.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
