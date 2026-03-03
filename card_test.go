@@ -18,7 +18,7 @@ func TestCardImplementsListItem(t *testing.T) {
 	if c.Title() != "Test Card" {
 		t.Errorf("Title() = %q, want %q", c.Title(), "Test Card")
 	}
-	if want := "󰃤 P1 · bl-test"; c.Description() != want {
+	if want := iconBug + " P1 · bl-test"; c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
 	// FilterValue includes title + description so search matches both.
@@ -50,7 +50,7 @@ func TestCardDescriptionShowsAssignee(t *testing.T) {
 	}
 	c := card{issue: issue}
 
-	want := "󰄬 P2 · bl-test @worker-assignee"
+	want := iconTask + " P2 · bl-test @worker-assignee"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
@@ -65,7 +65,7 @@ func TestCardDescriptionNoAssignee(t *testing.T) {
 	}
 	c := card{issue: issue}
 
-	want := "󰙴 P3 · bl-test"
+	want := iconFeature + " P3 · bl-test"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
@@ -80,7 +80,7 @@ func TestCardDescriptionBlockedShowsLockIcon(t *testing.T) {
 	}
 	c := card{issue: issue, blocked: true}
 
-	want := "󰌾  󰄬 P2 · bl-test"
+	want := iconLock + "  " + iconTask + " P2 · bl-test"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
@@ -95,7 +95,7 @@ func TestCardDescriptionEpicIcon(t *testing.T) {
 	}
 	c := card{issue: issue}
 
-	want := "󱈸 P0 · bl-epic"
+	want := iconEpic + " P0 · bl-epic"
 	if c.Description() != want {
 		t.Errorf("Description() = %q, want %q", c.Description(), want)
 	}
@@ -106,10 +106,10 @@ func TestIssueTypeIcon(t *testing.T) {
 		issueType beadslite.IssueType
 		wantIcon  string
 	}{
-		{beadslite.IssueTypeTask, "󰄬"},
-		{beadslite.IssueTypeBug, "󰃤"},
-		{beadslite.IssueTypeFeature, "󰙴"},
-		{beadslite.IssueTypeEpic, "󱈸"},
+		{beadslite.IssueTypeTask, iconTask},
+		{beadslite.IssueTypeBug, iconBug},
+		{beadslite.IssueTypeFeature, iconFeature},
+		{beadslite.IssueTypeEpic, iconEpic},
 	}
 	for _, tt := range tests {
 		got := issueTypeIcon(tt.issueType)

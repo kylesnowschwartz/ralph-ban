@@ -336,9 +336,7 @@ func (b *board) viewContent() string {
 	// Error display
 	var errView string
 	if b.err != nil {
-		errView = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Render("Error: " + b.err.Error())
+		errView = styleError().Render("Error: " + b.err.Error())
 	}
 
 	var footerView string
@@ -1205,8 +1203,7 @@ func (b *board) positionIndicator() string {
 		indicator += p
 	}
 
-	return lipgloss.NewStyle().
-		Faint(true).
+	return styleFaint().
 		Width(b.termWidth).
 		Align(lipgloss.Center).
 		Render("[" + indicator + "]")
@@ -1250,8 +1247,7 @@ func (b *board) positionIndicatorVertical() string {
 		indicator += p
 	}
 
-	return lipgloss.NewStyle().
-		Faint(true).
+	return styleFaint().
 		Width(b.termWidth).
 		Align(lipgloss.Center).
 		Render("[" + indicator + "]")
@@ -1346,15 +1342,8 @@ func filterItems(items []list.Item, query string) []list.Item {
 
 // searchBarView renders the search input in place of the help bar.
 func (b *board) searchBarView() string {
-	label := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("170")).
-		Bold(true).
-		Render("/ ")
-
-	hint := lipgloss.NewStyle().
-		Faint(true).
-		Render("  enter: accept  esc: cancel")
-
+	label := styleAccent().Render("/ ")
+	hint := styleFaint().Render("  enter: accept  esc: cancel")
 	return label + b.searchInput.View() + hint
 }
 
@@ -1498,12 +1487,12 @@ func (b *board) zoomView() string {
 
 	i := b.zoom.issue
 
-	labelStyle := lipgloss.NewStyle().Bold(true).Width(10)
-	faintStyle := lipgloss.NewStyle().Faint(true)
+	labelStyle := styleBold().Width(10)
+	faintStyle := styleFaint()
 
 	title := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("212")).
+		Foreground(colorZoom).
 		Render(i.Title)
 
 	fields := lipgloss.JoinVertical(lipgloss.Left,
@@ -1580,7 +1569,7 @@ func (b *board) zoomView() string {
 
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("212")).
+		BorderForeground(colorZoom).
 		Padding(1, 2).
 		Width(innerWidth)
 

@@ -207,15 +207,11 @@ func (f form) View() string {
 		header = "Edit Card"
 	}
 
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Padding(1, 2).
-		Width(50)
+	style := stylePanelBorder().Width(50)
 
 	label := lipgloss.NewStyle().Width(10)
-	active := lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
-	faint := lipgloss.NewStyle().Faint(true)
+	active := lipgloss.NewStyle().Foreground(colorAccent)
+	faint := styleFaint()
 
 	// Title row
 	titleLabel := label.Render("Title:")
@@ -236,7 +232,7 @@ func (f form) View() string {
 	priValue := priorityLabels[f.priority]
 	if f.focus == fieldPriority {
 		priLabel = active.Width(10).Render("Priority:")
-		priValue = fmt.Sprintf("◀ %s ▶", priValue)
+		priValue = fmt.Sprintf("%s %s %s", iconSelectorLeft, priValue, iconSelectorRight)
 	}
 	priRow := priLabel + " " + priValue
 
@@ -245,7 +241,7 @@ func (f form) View() string {
 	typeValue := string(typeOptions[f.typeIndex])
 	if f.focus == fieldType {
 		typeLabel = active.Width(10).Render("Type:")
-		typeValue = fmt.Sprintf("◀ %s ▶", typeValue)
+		typeValue = fmt.Sprintf("%s %s %s", iconSelectorLeft, typeValue, iconSelectorRight)
 	}
 	typeRow := typeLabel + " " + typeValue
 
@@ -256,7 +252,7 @@ func (f form) View() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Render(header),
+		styleBold().Render(header),
 		"",
 		titleRow,
 		descRow,

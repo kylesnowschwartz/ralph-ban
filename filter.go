@@ -172,11 +172,11 @@ func filterCycleView(current activeFilter, issues []*beadslite.Issue, maxVisible
 	hasRight := end < len(steps)
 
 	activeStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("214")).
+		Foreground(colorWarning).
 		Bold(true)
-	dimStyle := lipgloss.NewStyle().Faint(true)
+	dimStyle := styleFaint()
 	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("214")).
+		Foreground(colorWarning).
 		Bold(true)
 
 	var parts []string

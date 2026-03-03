@@ -64,8 +64,8 @@ func newDepLinker(issues []*beadslite.Issue, focusedID string, mode depLinkMode)
 	// fitting more cards in a compact picker.
 	delegate.ShowDescription = false
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("170")).
-		BorderLeftForeground(lipgloss.Color("170"))
+		Foreground(colorAccent).
+		BorderLeftForeground(colorAccent)
 
 	l := list.New(items, delegate, 50, 20)
 	l.SetShowHelp(false)
@@ -134,7 +134,7 @@ func (d depLinker) View() string {
 	d.list.SetSize(listWidth-4, listHeight-4)
 
 	// Hint line under the list.
-	faint := lipgloss.NewStyle().Faint(true)
+	faint := styleFaint()
 	directionHint := depDirectionHint(d.focusedID, d.mode, d.list.SelectedItem())
 	hint := faint.Render("↑/↓: nav  type: filter  enter: link  esc: cancel")
 
@@ -147,7 +147,7 @@ func (d depLinker) View() string {
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(colorBorder).
 		Padding(0, 1).
 		Width(listWidth)
 
@@ -161,7 +161,7 @@ func (d depLinker) View() string {
 
 // depDirectionHint shows a one-liner previewing the dependency that will be created.
 func depDirectionHint(focusedID string, mode depLinkMode, item list.Item) string {
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	style := lipgloss.NewStyle().Foreground(colorAccent)
 
 	picked := "(none selected)"
 	if item != nil {

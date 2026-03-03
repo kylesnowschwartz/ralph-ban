@@ -197,9 +197,9 @@ func (c *column) View() string {
 	// Append sort direction icon for the Done column.
 	if c.index == colDone {
 		if c.sortReversed {
-			header += lipgloss.NewStyle().Foreground(lipgloss.Color("170")).Render(" ")
+			header += styleAccent().Render(" " + iconSortAsc)
 		} else {
-			header += lipgloss.NewStyle().Faint(true).Render(" ")
+			header += styleFaint().Render(" " + iconSortDesc)
 		}
 	}
 
@@ -273,20 +273,18 @@ func (c *column) ViewVertical(termWidth int) string {
 	// Append sort direction icon for the Done column.
 	if c.index == colDone {
 		if c.sortReversed {
-			header += lipgloss.NewStyle().Foreground(lipgloss.Color("170")).Render(" \U000F0CBD")
+			header += styleAccent().Render(" " + iconSortAsc)
 		} else {
-			header += lipgloss.NewStyle().Faint(true).Render(" \U000F0CBC")
+			header += styleFaint().Render(" " + iconSortDesc)
 		}
 	}
 
 	// Style the header line — focused column gets a highlighted title.
 	var headerStyle lipgloss.Style
 	if c.focus {
-		headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("170"))
+		headerStyle = styleAccent()
 	} else {
-		headerStyle = lipgloss.NewStyle().Faint(true)
+		headerStyle = styleFaint()
 	}
 	renderedHeader := headerStyle.Render(header)
 
@@ -314,12 +312,10 @@ func (c *column) ViewVertical(termWidth int) string {
 		var lineStyle lipgloss.Style
 		if c.focus && i == selectedIdx {
 			// Focused selected card: highlighted
-			lineStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("170")).
-				Bold(true)
+			lineStyle = styleAccent()
 			line = "> " + line[2:] // replace leading spaces with cursor
 		} else if cd.blocked {
-			lineStyle = lipgloss.NewStyle().Faint(true)
+			lineStyle = styleFaint()
 		} else {
 			lineStyle = lipgloss.NewStyle()
 		}
@@ -328,7 +324,7 @@ func (c *column) ViewVertical(termWidth int) string {
 	}
 
 	if len(cardLines) == 0 {
-		cardLines = append(cardLines, lipgloss.NewStyle().Faint(true).Render("  (empty)"))
+		cardLines = append(cardLines, styleFaint().Render("  (empty)"))
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, append([]string{renderedHeader}, cardLines...)...)
@@ -344,7 +340,7 @@ func (c *column) ViewVertical(termWidth int) string {
 	if c.focus {
 		borderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(colorBorder).
 			Width(innerWidth)
 	} else {
 		borderStyle = lipgloss.NewStyle().
@@ -443,10 +439,10 @@ func cardAgeBucket(updatedAt time.Time) ageBucket {
 }
 
 var (
-	// agingTitleColor is an amber/yellow tint for cards aged 1–3 days.
-	agingTitleColor = lipgloss.Color("214")
-	// staleTitleColor is an orange-red tint for cards aged 3+ days.
-	staleTitleColor = lipgloss.Color("202")
+	// agingTitleColor is the theme warning color — amber/yellow for cards aged 1–3 days.
+	agingTitleColor = colorWarning
+	// staleTitleColor is the theme stale color — orange-red for cards aged 3+ days.
+	staleTitleColor = colorStale
 )
 
 // ellipsis is the three-dot suffix appended to truncated card titles.
@@ -590,7 +586,7 @@ func newBlurredTruncatingDelegate() truncatingDelegate {
 var (
 	focusedBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(colorBorder).
 			Padding(0, 1)
 
 	blurredBorder = lipgloss.NewStyle().
@@ -614,11 +610,11 @@ func (c *column) getStyle() lipgloss.Style {
 func newFocusedDelegate() list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("170")).
-		BorderLeftForeground(lipgloss.Color("170"))
+		Foreground(colorAccent).
+		BorderLeftForeground(colorAccent)
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("170")).
-		BorderLeftForeground(lipgloss.Color("170"))
+		Foreground(colorAccent).
+		BorderLeftForeground(colorAccent)
 	return d
 }
 

@@ -585,12 +585,12 @@ func TestCard_Description_Blocked(t *testing.T) {
 	freeDesc := free.Description()
 	blockedDesc := blocked.Description()
 
-	// Lock icon (nf-md-lock U+F033E) must not appear on unblocked cards.
-	if strings.Contains(freeDesc, "󰌾") {
+	// Lock icon must not appear on unblocked cards.
+	if strings.Contains(freeDesc, iconLock) {
 		t.Errorf("free card description should not contain lock icon: %q", freeDesc)
 	}
-	// Lock icon must appear on blocked cards in place of the old [locked] text.
-	if !strings.Contains(blockedDesc, "󰌾") {
+	// Lock icon must appear on blocked cards.
+	if !strings.Contains(blockedDesc, iconLock) {
 		t.Errorf("blocked card description should contain lock icon: %q", blockedDesc)
 	}
 }

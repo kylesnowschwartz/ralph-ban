@@ -70,17 +70,13 @@ func (r resolutionPicker) Update(msg tea.Msg) (resolutionPicker, tea.Cmd) {
 }
 
 func (r resolutionPicker) View() string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Padding(1, 2).
-		Width(44)
+	style := stylePanelBorder().Width(44)
 
-	active := lipgloss.NewStyle().Foreground(lipgloss.Color("170")).Bold(true)
-	faint := lipgloss.NewStyle().Faint(true)
+	active := styleAccent()
+	faint := styleFaint()
 	label := lipgloss.NewStyle().Width(12)
 
-	header := lipgloss.NewStyle().Bold(true).Render("Close Card")
+	header := styleBold().Render("Close Card")
 
 	cardTitle := faint.Render(r.card.issue.Title)
 	if len(r.card.issue.Title) > 38 {
@@ -88,7 +84,7 @@ func (r resolutionPicker) View() string {
 	}
 
 	opt := resolutionOptions[r.index]
-	selectorValue := fmt.Sprintf("◀ %s ▶", opt.label)
+	selectorValue := fmt.Sprintf("%s %s %s", iconSelectorLeft, opt.label, iconSelectorRight)
 
 	resLabel := label.Render("Resolution:")
 	resRow := resLabel + " " + active.Render(selectorValue)
