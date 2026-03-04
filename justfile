@@ -10,7 +10,7 @@ default:
 
 # Build ralph-ban
 build:
-    go build -o {{ bin }} .
+    go build -ldflags "-X main.Version=$(cat VERSION)" -o {{ bin }} .
 
 # Build the beads-lite CLI
 build-bl:
