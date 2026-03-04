@@ -104,8 +104,8 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
   pauses cleanly while workers run:
     touch .ralph-ban/.workers-active
   Do NOT pre-claim or pre-move cards. The worker template handles its own
-  lifecycle: unclaim -> claim --agent ${CLAUDE_AGENT_NAME:-worker} -> status doing -> implement ->
-  status review. The orchestrator dispatches; the worker owns the card.
+  lifecycle: bl claim --agent ${CLAUDE_AGENT_NAME:-worker} (atomically sets doing) -> implement ->
+  bl update --status review. The orchestrator dispatches; the worker owns the card.
   The name: parameter sets CLAUDE_AGENT_NAME inside the worker, giving each
   worker a unique identity (the card ID). This prevents hook collisions when
   multiple workers run in parallel.

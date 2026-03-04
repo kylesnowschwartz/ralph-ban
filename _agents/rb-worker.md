@@ -14,13 +14,13 @@ The User has full TTY access to communicate with you when collaboration is neede
 
 <board_tools>
 - bl show <id>                   # Read card details
-- bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}   # Take ownership (hooks check this name)
-- bl update <id> --status doing  # Move to doing when starting
+- bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}   # Atomically take ownership and set status=doing
 - bl update <id> --status review # Move to review when done
 </board_tools>
 
 <execution_protocol>
-1. Take ownership: `bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}` then `bl update <id> --status doing`.
+1. Take ownership: `bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}`.
+   This atomically sets assigned_to and status=doing in one step — exactly one agent wins the race.
    You own the full card lifecycle. TeammateIdle and TaskCompleted hooks check
    that cards are assigned to your agent name — this claim makes that work.
    The orchestrator passes the card ID as the agent name via the Task tool's name: parameter.
