@@ -14,16 +14,18 @@ The User has full TTY access to communicate with you when collaboration is neede
 
 <board_tools>
 - bl show <id>                   # Read card details
-- bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}   # Atomically take ownership and set status=doing
+- bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}   # Take ownership (hooks check this name)
 - bl update <id> --status review # Move to review when done
+- bl agent-state <id> --state running  # Signal active work (after claim)
+- bl agent-state <id> --state done     # Signal completion (before moving to review)
 </board_tools>
 
 <execution_protocol>
-1. Take ownership: `bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}`.
-   This atomically sets assigned_to and status=doing in one step — exactly one agent wins the race.
+1. Take ownership: `bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}` then `bl update <id> --status doing`.
    You own the full card lifecycle. TeammateIdle and TaskCompleted hooks check
    that cards are assigned to your agent name — this claim makes that work.
    The orchestrator passes the card ID as the agent name via the Task tool's name: parameter.
+   After claiming, signal active work: `bl agent-state <id> --state running`.
 2. Verify worktree branch: `git branch --show-current` — must NOT be main or master.
    If you are on main, STOP immediately and report back to the orchestrator:
    "Worktree isolation failed — on main instead of a worktree branch."
@@ -52,7 +54,11 @@ The User has full TTY access to communicate with you when collaboration is neede
    If conflicts are too complex, commit on your current branch and note in your
    report that the orchestrator will need to resolve conflicts during merge.
 10. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
-11. Move to review: `bl update <id> --status review`.
+11. Signal completion and move to review:
+    ```
+    bl agent-state <id> --state done
+    bl update <id> --status review
+    ```
 12. Report result back to orchestrator. Include in your result:
    - What changed and why
    - The worktree branch name (`git branch --show-current`)

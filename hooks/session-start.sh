@@ -13,6 +13,17 @@ require_bl
 # Save initial snapshot for future diffs
 save_snapshot
 
+# Set agent_state=running for any doing card claimed by this agent.
+# CLAUDE_AGENT_NAME is set by Claude Code when running as a named agent (e.g., a worker).
+# Only set state on cards that are explicitly owned — don't touch unassigned doing cards.
+if [ -n "${CLAUDE_AGENT_NAME:-}" ]; then
+  "$BL" list --json 2>/dev/null | jq -r --arg agent "$CLAUDE_AGENT_NAME" \
+    'select(.status == "doing" and .assigned_to == $agent) | .id' 2>/dev/null |
+    while IFS= read -r card_id; do
+      [ -n "$card_id" ] && "$BL" agent-state "$card_id" --state running >/dev/null 2>&1 || true
+    done
+fi
+
 # Helper: output additionalContext (agent context) + systemMessage (user-visible) and exit.
 emit_context() {
   local agent_ctx="$1"

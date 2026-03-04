@@ -143,10 +143,33 @@ if [ -f "${_GIT_ROOT}/${RALPH_BAN_DIR}/.circuit-breaker.json" ]; then
   done < <(jq -r 'keys[]' <"${_GIT_ROOT}/${RALPH_BAN_DIR}/.circuit-breaker.json" 2>/dev/null || true)
 fi
 
-# --- Stall detection: track doing card progress ---
-record_card_progress
+# --- Stall detection: query agent_state + last_activity ---
+# Cards with agent_state=running but a stale last_activity are genuinely stuck.
+# STALL_ACTIVITY_MINUTES: how long without activity before a running agent is stalled.
+STALL_ACTIVITY_MINUTES="${STALL_ACTIVITY_MINUTES:-30}"
 stall_warnings=""
-stall_warnings=$(detect_stalled_cards)
+stall_warnings=$(
+  state=$(read_board)
+  [ -z "$state" ] && exit 0
+  now=$(date +%s)
+  threshold=$((STALL_ACTIVITY_MINUTES * 60))
+
+  # Extract running cards with their id, agent, and last_activity timestamp.
+  # Use a null delimiter to handle spaces in titles safely.
+  while IFS=$'\t' read -r card_id agent last_activity; do
+    [ -z "$last_activity" ] && continue
+    # Convert ISO 8601 timestamp to epoch. Strip fractional seconds and colon
+    # from tz offset so macOS date -j can parse it.
+    ts_clean=$(echo "$last_activity" | sed 's/\.[0-9]*//' | sed 's/:\([0-9][0-9]\)$/\1/')
+    last_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$ts_clean" "+%s" 2>/dev/null || true)
+    [ -z "$last_epoch" ] && continue
+    age=$((now - last_epoch))
+    if [ "$age" -ge "$threshold" ]; then
+      age_min=$((age / 60))
+      echo "Card ${card_id} (agent: ${agent:-unknown}) has been running for ${age_min}m without activity update"
+    fi
+  done < <(echo "$state" | jq -r 'select(.agent_state == "running" and .last_activity != null) | [.id, (.assigned_to // "unknown"), .last_activity] | @tsv' 2>/dev/null || true)
+)
 
 # Build separate output for agent context (everything) and user display (actionable only).
 # The agent needs dispatch nudges, review queue depth, and board diffs for orchestration.

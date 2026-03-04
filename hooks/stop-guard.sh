@@ -153,24 +153,30 @@ echo "$current_hash" >"$HASH_FILE"
 # --- Phase 7: Block decision + guidance ---
 read todo_count doing_count <<<"$(count_active)"
 
-# Batch:      block only on doing cards (todo backlog is the user's concern).
+# Count cards with agent_state=running (explicit active work, not inferred from status).
+# This is the primary signal for batch mode. A card in doing without a running agent
+# may be orphaned — the agent should claim it or investigate rather than assuming work continues.
+running_count=$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running")] | length' 2>/dev/null || echo "0")
+
+# Batch:      block on running agents (explicit state) or doing cards (catch orphans).
 # Autonomous: block on todo + doing until the board drains.
 if [ "$stop_mode" = "autonomous" ]; then
   [ "$todo_count" -gt 0 ] || [ "$doing_count" -gt 0 ] && should_block="yes" || should_block="no"
 else
-  [ "$doing_count" -gt 0 ] && should_block="yes" || should_block="no"
+  [ "$running_count" -gt 0 ] || [ "$doing_count" -gt 0 ] && should_block="yes" || should_block="no"
 fi
 
 if [ "$should_block" = "yes" ]; then
   # Identify the concrete next action for the agent
   next_action=""
 
-  # Check for unclaimed doing cards first (both modes)
-  unclaimed_doing=$("$BL" list --json 2>/dev/null | jq -r 'select(.status == "doing" and (.assigned_to == null or .assigned_to == "")) | "\(.id): \(.title)"' 2>/dev/null | head -1 || true)
+  # Check for doing cards with no running agent (agent_state not running).
+  # These are orphaned: in doing but the agent isn't explicitly active.
+  unclaimed_doing=$("$BL" list --json 2>/dev/null | jq -r 'select(.status == "doing" and (.agent_state == null or .agent_state == "" or .agent_state == "idle" or .agent_state == "done" or .agent_state == "dead")) | "\(.id): \(.title)"' 2>/dev/null | head -1 || true)
   if [ -n "$unclaimed_doing" ]; then
-    next_action="$unclaimed_doing is in doing with no assignee. Claim it or spawn a worker."
+    next_action="$unclaimed_doing is in doing with no active agent. Claim it or spawn a worker."
   elif [ "$stop_mode" = "autonomous" ]; then
-    # Suggest next todo card when no unclaimed doing work
+    # Suggest next todo card when no orphaned doing work
     next_card=$("$BL" ready --json 2>/dev/null | jq -r 'select(.status == "todo") | "\(.id) — \(.title)"' 2>/dev/null | head -1 || true)
     if [ -n "$next_card" ]; then
       next_action="Dispatch now: $next_card"
@@ -189,8 +195,8 @@ if [ "$should_block" = "yes" ]; then
     reason="STOP BLOCKED (attempt $((stall_count + 1)) of ${MAX_STALLS}) — board has active work"
     summary="${todo_count} todo, ${doing_count} doing."
   else
-    reason="STOP BLOCKED (attempt $((stall_count + 1)) of ${MAX_STALLS}) — ${doing_count} cards in doing"
-    summary="${doing_count} cards in doing — finish or unclaim them before stopping."
+    reason="STOP BLOCKED (attempt $((stall_count + 1)) of ${MAX_STALLS}) — ${running_count} running agents, ${doing_count} cards in doing"
+    summary="${running_count} running agent(s), ${doing_count} card(s) in doing — wait for workers to finish or investigate orphaned cards."
   fi
 
   # Assemble the directive via heredoc — readable and handles newlines naturally.
