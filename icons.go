@@ -15,8 +15,8 @@ const (
 	iconLock = "󰌾" // nf-md-lock
 
 	// Sort direction indicators for the Done column header.
-	iconSortAsc  = "\U000F0CBD" // nf-md-sort-ascending
-	iconSortDesc = "\U000F0CBC" // nf-md-sort-descending
+	iconSortAsc  = "" // nf-md-sort-ascending
+	iconSortDesc = "" // nf-md-sort-descending
 
 	// Selector arrows used in the form, resolution picker, and any cycle widget.
 	iconSelectorLeft  = "◀"
