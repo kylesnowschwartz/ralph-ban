@@ -10,6 +10,10 @@ import (
 	beadslite "github.com/kylesnowschwartz/beads-lite"
 )
 
+// Version is set at build time via -ldflags "-X main.Version=x.y.z".
+// Falls back to "dev" for local builds.
+var Version = "dev"
+
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: ralph-ban [command] [flags]
@@ -18,6 +22,8 @@ Commands:
   (default)    open the TUI kanban board
   init         initialize a new project in the current directory
   claude       start a Claude Code orchestrator session
+  version      print the current version
+  update       update ralph-ban and bl to latest releases
 
 Quick start:
   ralph-ban init --seed                         # new project with starter cards
@@ -42,6 +48,15 @@ Run 'ralph-ban <command> --help' for all flags.
 			return
 		case "claude":
 			runClaude(os.Args[2:])
+			return
+		case "version":
+			fmt.Println(Version)
+			return
+		case "update":
+			if err := runUpdate(os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "update failed: %v\n", err)
+				os.Exit(1)
+			}
 			return
 		case "snapshot":
 			runSnapshot(os.Args[2:])
