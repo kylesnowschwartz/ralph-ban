@@ -1236,91 +1236,44 @@ func (b *board) resizeColumnsVertical() {
 	}
 }
 
-// positionIndicator shows which columns are visible: [< Backlog | *To Do* | Doing >]
+// positionIndicator renders dot indicators for horizontal panning.
+// Each column is a dot: filled for visible, accent for focused, hollow for off-screen.
+// Hidden when all columns fit on screen.
 func (b *board) positionIndicator() string {
-	visible := b.visibleCount()
-	if visible >= int(numColumns) {
-		return "" // all visible, no indicator needed
+	if b.visibleCount() >= int(numColumns) {
+		return ""
 	}
-
-	var parts []string
-	if b.panOffset > 0 {
-		parts = append(parts, "<")
-	} else {
-		parts = append(parts, " ")
-	}
-
-	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
-		idx := b.panOffset + i
-		name := columnTitles[idx]
-		if columnIndex(idx) == b.focused {
-			name = "*" + name + "*"
-		}
-		parts = append(parts, name)
-	}
-
-	if b.panOffset+visible < int(numColumns) {
-		parts = append(parts, ">")
-	} else {
-		parts = append(parts, " ")
-	}
-
-	indicator := ""
-	for i, p := range parts {
-		if i > 0 && i < len(parts)-1 {
-			indicator += " | "
-		}
-		indicator += p
-	}
-
-	return styleFaint().
-		Width(b.termWidth).
-		Align(lipgloss.Center).
-		Render("[" + indicator + "]")
+	return b.renderDotIndicator()
 }
 
-// positionIndicatorVertical shows which column bands are visible in vertical mode.
-// Format: [^ Backlog | *To Do* | Doing v]
+// positionIndicatorVertical renders dot indicators for vertical panning.
 func (b *board) positionIndicatorVertical() string {
-	visible := b.visibleCountVertical()
-	if visible >= int(numColumns) {
-		return "" // all bands visible, no indicator needed
+	if b.visibleCountVertical() >= int(numColumns) {
+		return ""
 	}
+	return b.renderDotIndicator()
+}
 
-	var parts []string
-	if b.panOffset > 0 {
-		parts = append(parts, "^")
-	} else {
-		parts = append(parts, " ")
-	}
+// renderDotIndicator builds a row of dots, one per column.
+// The focused column's dot is accent-colored; all others are faint.
+// Position of the accent dot within the row shows where you are.
+func (b *board) renderDotIndicator() string {
+	accent := lipgloss.NewStyle().Foreground(colorAccent)
+	faint := styleFaint()
 
-	for i := 0; i < visible && b.panOffset+i < int(numColumns); i++ {
-		idx := b.panOffset + i
-		name := columnTitles[idx]
-		if columnIndex(idx) == b.focused {
-			name = "*" + name + "*"
+	parts := make([]string, int(numColumns))
+	for i := range int(numColumns) {
+		if columnIndex(i) == b.focused {
+			parts[i] = accent.Render(iconDotFilled)
+		} else {
+			parts[i] = faint.Render(iconDotFilled)
 		}
-		parts = append(parts, name)
 	}
 
-	if b.panOffset+visible < int(numColumns) {
-		parts = append(parts, "v")
-	} else {
-		parts = append(parts, " ")
-	}
-
-	indicator := ""
-	for i, p := range parts {
-		if i > 0 && i < len(parts)-1 {
-			indicator += " | "
-		}
-		indicator += p
-	}
-
-	return styleFaint().
+	return lipgloss.NewStyle().
 		Width(b.termWidth).
 		Align(lipgloss.Center).
-		Render("[" + indicator + "]")
+		Render(strings.Join(parts, " "))
 }
 
 // openSearch enters search mode: snapshot all column items and activate the input.
