@@ -171,6 +171,22 @@ stall_warnings=$(
   done < <(echo "$state" | jq -r 'select(.agent_state == "running" and .last_activity != null) | [.id, (.assigned_to // "unknown"), .last_activity] | @tsv' 2>/dev/null || true)
 )
 
+# --- Spec audit: review cards with incomplete specs ---
+spec_warnings=""
+review_with_bad_specs=$("$BL" list --json 2>/dev/null | jq -r '
+  .[] | select(.status == "review")
+  | select(.specifications != null and (.specifications | length) > 0)
+  | select([.specifications[] | select(.checked == false)] | length > 0)
+  | "\(.id): \(.title) (\([.specifications[] | select(.checked)] | length)/\(.specifications | length) specs)"
+' 2>/dev/null || true)
+
+if [ -n "$review_with_bad_specs" ]; then
+  # shellcheck disable=SC2034 # used in agent_parts/user_parts below
+  spec_warnings="Review cards with incomplete specs (moved via --force):
+${review_with_bad_specs}
+Complete specs before merging."
+fi
+
 # Build separate output for agent context (everything) and user display (actionable only).
 # The agent needs dispatch nudges, review queue depth, and board diffs for orchestration.
 # The user only needs actionable warnings — circuit breaker, stalls, rate limits.
@@ -209,6 +225,10 @@ if [ -n "$stall_warnings" ]; then
   agent_parts+=("$stall_warnings")
   user_parts+=("STALL DETECTED:")
   user_parts+=("$stall_warnings")
+fi
+if [ -n "$spec_warnings" ]; then
+  agent_parts+=("$spec_warnings")
+  user_parts+=("$spec_warnings")
 fi
 
 if [ ${#agent_parts[@]} -gt 0 ]; then

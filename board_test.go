@@ -810,6 +810,148 @@ func TestHandleMove_WIPLimitFilterBypass(t *testing.T) {
 	}
 }
 
+// --- handleMove spec-gate enforcement ---
+
+func TestHandleMove_SpecGateBlocked(t *testing.T) {
+	b := newTestBoard(t)
+	// Default config has nil RequireSpecsForReview, which defaults to true.
+
+	issue := makeIssue("bl-spec1", "Unchecked Specs", beadslite.StatusDoing)
+	issue.Specifications = []beadslite.Spec{
+		{Text: "write tests", Checked: true},
+		{Text: "update docs", Checked: false},
+	}
+	b.cols[colDoing].SetItems([]list.Item{card{issue: issue}})
+	b.focused = colDoing
+	b.cols[colDoing].Focus()
+
+	cmd := b.handleMove(moveMsg{
+		card:   card{issue: issue},
+		source: colDoing,
+		target: colReview,
+	})
+
+	if cmd != nil {
+		t.Error("handleMove should return nil when specs are incomplete")
+	}
+	if b.err == nil {
+		t.Fatal("board error should be set when spec gate blocks a move")
+	}
+}
+
+func TestHandleMove_SpecGateAllChecked(t *testing.T) {
+	b := newTestBoard(t)
+
+	issue := makeIssue("bl-spec2", "All Checked", beadslite.StatusDoing)
+	issue.Specifications = []beadslite.Spec{
+		{Text: "write tests", Checked: true},
+		{Text: "update docs", Checked: true},
+	}
+	if err := b.store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	b.cols[colDoing].SetItems([]list.Item{card{issue: issue}})
+	b.focused = colDoing
+	b.cols[colDoing].Focus()
+
+	cmd := b.handleMove(moveMsg{
+		card:   card{issue: issue},
+		source: colDoing,
+		target: colReview,
+	})
+
+	if cmd == nil {
+		t.Error("handleMove should return a persist command when all specs are checked")
+	}
+	if b.err != nil {
+		t.Errorf("no error expected on allowed move, got: %v", b.err)
+	}
+}
+
+func TestHandleMove_SpecGateNoSpecs(t *testing.T) {
+	b := newTestBoard(t)
+
+	issue := makeIssue("bl-spec3", "No Specs", beadslite.StatusDoing)
+	// No specifications set — should pass unconditionally.
+	if err := b.store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	b.cols[colDoing].SetItems([]list.Item{card{issue: issue}})
+	b.focused = colDoing
+	b.cols[colDoing].Focus()
+
+	cmd := b.handleMove(moveMsg{
+		card:   card{issue: issue},
+		source: colDoing,
+		target: colReview,
+	})
+
+	if cmd == nil {
+		t.Error("handleMove should allow move when card has no specs")
+	}
+	if b.err != nil {
+		t.Errorf("no error expected for card with no specs, got: %v", b.err)
+	}
+}
+
+func TestHandleMove_SpecGateDisabled(t *testing.T) {
+	b := newTestBoard(t)
+	b.wip = boardConfig{RequireSpecsForReview: boolPtr(false)}
+
+	issue := makeIssue("bl-spec4", "Unchecked But Allowed", beadslite.StatusDoing)
+	issue.Specifications = []beadslite.Spec{
+		{Text: "write tests", Checked: false},
+	}
+	if err := b.store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	b.cols[colDoing].SetItems([]list.Item{card{issue: issue}})
+	b.focused = colDoing
+	b.cols[colDoing].Focus()
+
+	cmd := b.handleMove(moveMsg{
+		card:   card{issue: issue},
+		source: colDoing,
+		target: colReview,
+	})
+
+	if cmd == nil {
+		t.Error("handleMove should allow move when spec gate is disabled")
+	}
+	if b.err != nil {
+		t.Errorf("no error expected when spec gate is disabled, got: %v", b.err)
+	}
+}
+
+func TestHandleMove_SpecGateOnlyReview(t *testing.T) {
+	b := newTestBoard(t)
+	// Default config: specs required for review.
+
+	issue := makeIssue("bl-spec5", "Unchecked Non-Review", beadslite.StatusTodo)
+	issue.Specifications = []beadslite.Spec{
+		{Text: "write tests", Checked: false},
+	}
+	if err := b.store.CreateIssue(issue); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	b.cols[colTodo].SetItems([]list.Item{card{issue: issue}})
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+
+	cmd := b.handleMove(moveMsg{
+		card:   card{issue: issue},
+		source: colTodo,
+		target: colDoing,
+	})
+
+	if cmd == nil {
+		t.Error("handleMove should allow move to non-review column even with unchecked specs")
+	}
+	if b.err != nil {
+		t.Errorf("no error expected for non-review move, got: %v", b.err)
+	}
+}
+
 func TestHandleMove_ClearsErrorOnSuccess(t *testing.T) {
 	b := newTestBoard(t)
 

@@ -518,6 +518,19 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 		return nil
 	}
 
+	// Enforce spec-gate: all specifications must be checked before Review.
+	// Cards with no specs pass unconditionally. Mirrors WIP limit pattern.
+	if result.target == colReview && b.wip.specsRequiredForReview() {
+		if !msg.card.issue.AllSpecsChecked() {
+			checked, total := msg.card.issue.SpecProgress()
+			b.err = fmt.Errorf(
+				"Specs incomplete: all must be checked before Review (%d/%d)",
+				checked, total,
+			)
+			return nil
+		}
+	}
+
 	// Intercept moves into Done: open resolution picker instead.
 	// The picker will emit a closeMsg when the user confirms.
 	if result.target == colDone {

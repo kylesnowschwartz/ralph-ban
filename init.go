@@ -28,7 +28,8 @@ var defaultConfig = boardConfig{
 		"doing":  3,
 		"review": 2,
 	},
-	ProjectCommands: ProjectCommands{},
+	RequireSpecsForReview: boolPtr(true),
+	ProjectCommands:       ProjectCommands{},
 }
 
 // runInit bootstraps a new ralph-ban project in the current directory.

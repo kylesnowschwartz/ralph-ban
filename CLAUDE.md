@@ -24,7 +24,7 @@ Four invariants that shape every decision in this codebase:
 - `init.go` — `ralph-ban init` bootstraps a project: creates `.ralph-ban/config.json`, `.beads-lite/beads.db`, extracts the embedded plugin, and installs agents for `--agent` discovery.
 - `claude.go` — `ralph-ban claude` launches a Claude Code orchestrator session with the right flags (`--agent`, `--plugin`, `--settings`).
 - `update.go` — `ralph-ban update` downloads latest releases of both ralph-ban and bl from GitHub, replaces the binaries, and refreshes the embedded plugin.
-- `config.go` — Reads `.ralph-ban/config.json` (WIP limits, project commands).
+- `config.go` — Reads `.ralph-ban/config.json` (WIP limits, project commands). `require_specs_for_review` (default true): blocks cards from entering Review unless all specifications are checked. Cards with no specs are unaffected. The `bl` CLI enforces the same gate unless `--force` is passed.
 - `embed.go` — `//go:embed` directive for `.claude-plugin/`, `_agents/`, and `hooks/` directories.
 - `snapshot.go` — `ralph-ban snapshot` exports board state as JSON or ASCII.
 - `dump.go` — `--dump` flag renders one TUI frame as JSON for testing.

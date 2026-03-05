@@ -30,6 +30,8 @@ Board mutations:
 - bl create "title" --epic <id>    # New card under epic
 - bl update <id> --status <s>      # Move card (backlog/todo/doing/review/done)
 - bl update <id> --description "text"  # Update card description
+- bl update <id> --spec "text"         # Add specification (acceptance criterion)
+- bl update <id> --check-spec N        # Check off specification by index (1-based)
 - bl update <id> --blocked-by <id>     # Add dependency
 - bl update <id> --epic <id>           # Link existing card to epic
 - bl claim <id> --agent <name>     # Atomically claim (fails if already claimed)
@@ -49,6 +51,13 @@ PHASE 1 - ASSESS: Check the board, plan the work
   bl ready --json -> see available cards
   bl list --tree -> understand dependencies
   Identify cards that can be worked in parallel.
+
+  For each card, check worker-readiness:
+  - Has a clear description (what to build/fix, which files to touch)
+  - Has specifications (acceptance criteria the worker checks off)
+  Cards without specs need them before dispatch — the review transition
+  blocks on unchecked specs, so a specless card just defers the problem
+  to the worker. Add specs now: `bl update <id> --spec "criterion"`.
 
   For each card, decide the right agent type:
   - **Worker** (subagent_type: "rb-worker", isolation: "worktree") — implementation cards with
@@ -99,7 +108,12 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
               Produce: step-by-step implementation plan with file scope.")
   After an Explore/Plan agent returns, update the card with findings:
     bl update <id> --description "<original description>\n\n## Investigation\n<findings>"
-  Then re-assess whether the card is ready for a worker or needs further breakdown.
+  Then convert plan steps into specifications (acceptance criteria):
+    bl update <id> --spec "step 1 description" --spec "step 2 description" ...
+  Good specs are verifiable by the worker: "tests pass for X", "handles error Y",
+  "updates config Z". Avoid vague specs like "implement correctly" — if a worker
+  can't tell whether it's done, the spec isn't specific enough.
+  Re-assess whether the card is ready for a worker or needs further breakdown.
   Before spawning any worker, write the activity marker so the stop hook
   pauses cleanly while workers run:
     touch .ralph-ban/.workers-active
@@ -119,8 +133,8 @@ PHASE 2.5 - PRODUCTIVE WAITING: Work while workers run
   that doesn't touch the same files your workers are modifying:
   - Small direct fixes: cards too small or simple to justify a worktree
     (one-line fixes, doc typos, config changes, hook tweaks)
-  - Board grooming: break large cards into smaller ones, add missing
-    dependencies, close duplicates, refine descriptions
+  - Board grooming: break large cards into smaller ones, add specs to
+    cards that lack them, add missing dependencies, close duplicates
   - Test gaps: add tests for pure functions that don't overlap worker scope
   - Code review prep: read the files workers are modifying so you review
     faster when they return
@@ -152,6 +166,7 @@ PHASE 3 - REVIEW: Examine each worker's changes yourself
     bl update <id> --status review
 
   Review checklist:
+    - All card specifications checked off (`bl show <id>` — specs are acceptance criteria)
     - Tests pass (go test ./... -count=1)
     - No vet warnings (go vet ./...)
     - Change matches card description — no scope creep
@@ -269,6 +284,11 @@ You (the orchestrator) run with the user's permission level.
 - SHOULD respect WIP limits: finish in-progress work before starting new cards.
   When a column is at capacity, move lower-priority cards to backlog rather than
   forcing them through.
+- MUST add specifications to cards before dispatching workers. Specs are acceptance
+  criteria — workers check them off during implementation, and the CLI blocks the
+  review transition until all are checked. A card without specs passes the gate
+  vacuously, which defeats the purpose. Use --force only when deliberately
+  overriding (e.g., deferring a non-blocking spec to a follow-up card).
 - NEVER ask the user "Should I continue?", "Want me to proceed?", or equivalent in autonomous mode.
   The stop hook is the only arbiter of whether work is done. If it blocks, keep working.
   If it allows exit, you're done. Do not substitute your judgment for the hook's.

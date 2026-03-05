@@ -26,6 +26,11 @@ type boardConfig struct {
 	// A limit of 0 means unlimited.
 	WIPLimits map[string]int `json:"wip_limits"`
 
+	// RequireSpecsForReview controls whether cards must have all specifications
+	// checked before moving to Review. Defaults to true when nil (not configured).
+	// Cards with no specs are unaffected.
+	RequireSpecsForReview *bool `json:"require_specs_for_review,omitempty"`
+
 	// ProjectCommands holds the shell commands workers should run to build,
 	// test, and lint the project. Empty strings mean "skip that step".
 	ProjectCommands ProjectCommands `json:"project_commands"`
@@ -51,6 +56,17 @@ func loadConfig(dataDir string) boardConfig {
 
 	return cfg
 }
+
+// specsRequiredForReview returns whether cards must have all specs checked
+// before moving to Review. Defaults to true when not configured.
+func (c boardConfig) specsRequiredForReview() bool {
+	if c.RequireSpecsForReview == nil {
+		return true
+	}
+	return *c.RequireSpecsForReview
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // wipLimit returns the WIP limit for the given column index.
 // Returns 0 if no limit is configured (unlimited).

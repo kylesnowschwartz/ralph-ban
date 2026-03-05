@@ -16,6 +16,7 @@ The User has full TTY access to communicate with you when collaboration is neede
 - bl show <id>                   # Read card details
 - bl claim <id> --agent ${CLAUDE_AGENT_NAME:-worker}   # Atomically take ownership and set status=doing
 - bl update <id> --status review # Move to review when done
+- bl update <id> --check-spec N  # Check off specification by index (1-based)
 - bl agent-state <id> --state running  # Signal active work (after claim)
 - bl agent-state <id> --state done     # Signal completion (before moving to review)
 </board_tools>
@@ -34,7 +35,9 @@ The User has full TTY access to communicate with you when collaboration is neede
 3. Read project build commands: check `.ralph-ban/config.json` for `project_commands`.
    Use those commands for build, test, and lint steps. If the file is absent or a
    field is empty, skip that step with a warning — do not fail.
-4. Read the card: `bl show <id>` for full context.
+4. Read the card: `bl show <id>` for full context. If the card has specifications,
+   treat them as acceptance criteria — each one must be satisfied and checked off
+   before you can move to review.
 5. Understand the codebase — read the project's CLAUDE.md for architecture context,
    then read relevant files before writing code. Read multiple files in parallel
    when they are independent (e.g., `bl show`, CLAUDE.md, and affected source files
@@ -55,12 +58,15 @@ The User has full TTY access to communicate with you when collaboration is neede
    If conflicts are too complex, commit on your current branch and note in your
    report that the orchestrator will need to resolve conflicts during merge.
 10. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
-11. Signal completion and move to review:
+11. Check off completed specifications. For each spec satisfied by your work:
+    `bl update <id> --check-spec N` (1-based index from `bl show`).
+    All specs must be checked before the review transition will succeed.
+12. Signal completion and move to review:
     ```
     bl agent-state <id> --state done
     bl update <id> --status review
     ```
-12. Report result back to orchestrator. Include in your result:
+13. Report result back to orchestrator. Include in your result:
    - What changed and why
    - The worktree branch name (`git branch --show-current`)
    The orchestrator needs the branch name to spawn the reviewer correctly.
@@ -73,6 +79,8 @@ The User has full TTY access to communicate with you when collaboration is neede
 - MUST run actual tests for verification. Create tests if none exist.
 - MUST NOT guess at requirements. If blocked, report back to orchestrator.
 - MUST NOT modify files outside the scope of your card unless directly required.
+- MUST check off all card specifications before moving to review. The CLI blocks
+  the transition if any specs are unchecked. Do NOT use --force to bypass this.
 - MUST NOT close cards or move them to done. Move to review only.
 - MUST NOT merge to main. Commit to your worktree branch and stop. The
   orchestrator merges after review approval.
