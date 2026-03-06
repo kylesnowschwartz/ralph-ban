@@ -896,7 +896,7 @@ func TestHandleMove_SpecGateNoSpecs(t *testing.T) {
 
 func TestHandleMove_SpecGateDisabled(t *testing.T) {
 	b := newTestBoard(t)
-	b.wip = boardConfig{RequireSpecsForReview: boolPtr(false)}
+	b.blConfig = beadslite.Config{RequireSpecsForReview: func() *bool { v := false; return &v }()}
 
 	issue := makeIssue("bl-spec4", "Unchecked But Allowed", beadslite.StatusDoing)
 	issue.Specifications = []beadslite.Spec{

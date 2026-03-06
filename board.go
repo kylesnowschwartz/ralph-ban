@@ -75,6 +75,11 @@ type board struct {
 	// Zero limit for a column means unlimited.
 	wip boardConfig
 
+	// blConfig holds beads-lite project configuration (spec-gate, etc.)
+	// loaded from .beads-lite/config.json. Separate from wip because
+	// spec-gate is a beads-lite concern, not a ralph-ban board concern.
+	blConfig beadslite.Config
+
 	// doneReversed is true when the Done column is sorted newest-first.
 	// Toggled by the SortToggle keybinding while focused on the Done column.
 	// Not persisted — resets each session.
@@ -92,6 +97,7 @@ func newBoard(store *beadslite.Store) *board {
 	// Load WIP config before constructing columns so limits are available
 	// during the first render. Missing or malformed config is silently ignored.
 	wip := loadConfig(ralphBanDir)
+	blCfg := beadslite.LoadConfig("") // reads .beads-lite/config.json from CWD
 
 	isDark := true // safe default; overridden by BackgroundColorMsg
 	var cols [numColumns]column
@@ -116,6 +122,7 @@ func newBoard(store *beadslite.Store) *board {
 		help:        h,
 		searchInput: si,
 		wip:         wip,
+		blConfig:    blCfg,
 		isDark:      true, // safe default; overridden by BackgroundColorMsg
 	}
 	b.cols[b.focused].Focus()
@@ -520,7 +527,7 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 
 	// Enforce spec-gate: all specifications must be checked before Review.
 	// Cards with no specs pass unconditionally. Mirrors WIP limit pattern.
-	if result.target == colReview && b.wip.specsRequiredForReview() {
+	if result.target == colReview && b.blConfig.SpecsRequiredForReview() {
 		if !msg.card.issue.AllSpecsChecked() {
 			checked, total := msg.card.issue.SpecProgress()
 			b.err = fmt.Errorf(

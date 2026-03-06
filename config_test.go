@@ -179,45 +179,6 @@ func TestProjectCommands_PartialConfig(t *testing.T) {
 	}
 }
 
-// --- specsRequiredForReview ---
-
-func TestSpecsRequiredForReview_NilDefaultsTrue(t *testing.T) {
-	cfg := boardConfig{}
-	if !cfg.specsRequiredForReview() {
-		t.Error("nil RequireSpecsForReview should default to true")
-	}
-}
-
-func TestSpecsRequiredForReview_ExplicitTrue(t *testing.T) {
-	cfg := boardConfig{RequireSpecsForReview: boolPtr(true)}
-	if !cfg.specsRequiredForReview() {
-		t.Error("explicit true should return true")
-	}
-}
-
-func TestSpecsRequiredForReview_ExplicitFalse(t *testing.T) {
-	cfg := boardConfig{RequireSpecsForReview: boolPtr(false)}
-	if cfg.specsRequiredForReview() {
-		t.Error("explicit false should return false")
-	}
-}
-
-func TestSpecsRequiredForReview_JSONRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	content := `{"wip_limits": {}, "require_specs_for_review": false}`
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	cfg := loadConfig(dir)
-	if cfg.RequireSpecsForReview == nil {
-		t.Fatal("RequireSpecsForReview should be non-nil after loading JSON with the field")
-	}
-	if cfg.specsRequiredForReview() {
-		t.Error("require_specs_for_review: false should round-trip as false")
-	}
-}
-
 // --- handleMove WIP enforcement ---
 
 func newTestBoardWithWIP(t *testing.T, cfg boardConfig) *board {

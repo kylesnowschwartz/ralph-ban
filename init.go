@@ -28,8 +28,7 @@ var defaultConfig = boardConfig{
 		"doing":  3,
 		"review": 2,
 	},
-	RequireSpecsForReview: boolPtr(true),
-	ProjectCommands:       ProjectCommands{},
+	ProjectCommands: ProjectCommands{},
 }
 
 // runInit bootstraps a new ralph-ban project in the current directory.
@@ -87,6 +86,18 @@ func runInit(args []string) {
 		os.Exit(1)
 	}
 	defer store.Close()
+
+	// Write default beads-lite config if absent. This mirrors what `bl init`
+	// does — ralph-ban init creates the DB directly (not via bl init), so it
+	// must also ensure the config file exists.
+	blConfigPath := filepath.Join(beadsDir, "config.json")
+	if _, err := os.Stat(blConfigPath); os.IsNotExist(err) {
+		blCfg := beadslite.Config{RequireSpecsForReview: func() *bool { v := true; return &v }()}
+		if data, err := json.MarshalIndent(blCfg, "", "  "); err == nil {
+			data = append(data, '\n')
+			os.WriteFile(blConfigPath, data, 0644)
+		}
+	}
 
 	// --- Step 3: Optionally seed starter cards ---
 	seeded := 0
