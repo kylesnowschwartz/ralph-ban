@@ -30,8 +30,8 @@ github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJ
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
-github.com/kylesnowschwartz/beads-lite v1.5.0 h1:SVPO59abMSvLqy2SHJYkxMfearuM6UIeaMe7UoWlr5w=
-github.com/kylesnowschwartz/beads-lite v1.5.0/go.mod h1:KdVNCVL2/fluhjr0j5gmEHAJlfuei4NmGtaiyld6V/U=
+github.com/kylesnowschwartz/beads-lite v1.5.1 h1:sxAto9TxSWiTyC66jQ0YMZ2Yc14d3MzPqiEG+8oP8dc=
+github.com/kylesnowschwartz/beads-lite v1.5.1/go.mod h1:KdVNCVL2/fluhjr0j5gmEHAJlfuei4NmGtaiyld6V/U=
 github.com/lucasb-eyer/go-colorful v1.3.0 h1:2/yBRLdWBZKrf7gB40FoiKfAWYQ0lqNcbuQwVHXptag=
 github.com/lucasb-eyer/go-colorful v1.3.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-runewidth v0.0.20 h1:WcT52H91ZUAwy8+HUkdM3THM6gXqXuLJi9O3rjcQQaQ=
