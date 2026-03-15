@@ -45,22 +45,27 @@ The User has full TTY access to communicate with you when collaboration is neede
    pre-existing failures early prevents wasted turns debugging your own changes.
 7. Implement the change. Write or update tests as you go — tests are how you know
    you're done, not specs. If no tests exist for the area you're touching, create them.
-8. Verify: run the project's lint command, then its test command (from `project_commands`).
-   Tests passing is your signal to commit. Do NOT loop on spec-checking or
-   perfectionism — if tests pass and the implementation matches the card, commit.
-9. Rebase onto latest main before committing. The orchestrator may have committed
-   new work to main while you implemented — rebasing keeps your branch a clean
-   fast-forward and avoids merge conflicts during review.
+8. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
+   Commit BEFORE rebasing. `git rebase` requires a clean working tree — uncommitted
+   changes will either fail the rebase or trigger autostash, which is fragile.
+   Committing first gives rebase a clean replay target.
+9. Rebase onto latest main. Other workers may have merged while you implemented —
+   rebasing replays your commit on top of current main, pulling in their changes
+   and surfacing conflicts early while you have full context.
    ```
    git rebase main
    ```
-   Worktrees share refs with the main repo, so local `main` already reflects the
-   orchestrator's latest commits — no fetch needed.
-   If the rebase produces conflicts, resolve them, re-run tests, then continue.
-   If conflicts are too complex, commit on your current branch and note in your
-   report that the orchestrator will need to resolve conflicts during merge.
-10. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
-    Commit BEFORE checking specs. The code is the deliverable; specs are bookkeeping.
+   Worktrees share refs with the main repo, so local `main` already reflects
+   the orchestrator's latest commits — no fetch needed.
+   If the rebase produces conflicts, resolve them and `git rebase --continue`.
+   If conflicts are too complex, `git rebase --abort` (your commit stays on the
+   original base) and note in your report that the orchestrator will need to
+   handle conflicts during merge.
+10. Verify: run the project's lint command, then its test command (from `project_commands`).
+    Tests MUST validate the rebased code, not pre-rebase code — this is why
+    rebase comes before verify. If tests fail after a clean rebase, fix the issue
+    and amend your commit (`git commit --amend`). Do NOT loop on spec-checking
+    or perfectionism.
 11. Check off completed specifications. For each spec satisfied by your work:
     `bl update <id> --check-spec N` (1-based index from `bl show`).
     All specs must be checked before the review transition will succeed.
@@ -74,15 +79,18 @@ The User has full TTY access to communicate with you when collaboration is neede
 13. Report result back to orchestrator. Include in your result:
    - What changed and why
    - The worktree branch name (`git branch --show-current`)
-   The orchestrator needs the branch name to spawn the reviewer correctly.
+   - The worktree path (`pwd`)
+   The orchestrator needs the branch name for merging and the worktree path
+   for running verification tests and cleanup.
 </execution_protocol>
 
 <rules>
 - MUST work on one card per invocation. Stay focused on your assigned card.
-- MUST run tests and linting before committing (using project_commands from config).
+- MUST run tests and linting after rebasing (using project_commands from config).
+  Tests validate the rebased code. If they fail, fix and amend the commit.
 - MUST use conventional commit prefixes. Messages explain WHY, not WHAT.
 - MUST run actual tests for verification. Create tests if none exist.
-- MUST commit before checking off specs. Priority order: implement → test → commit → check specs.
+- MUST commit before checking off specs. Priority order: implement → commit → rebase → test → check specs.
   Specs are post-commit bookkeeping, not the primary deliverable. If you find yourself
   spending more time on specs than on code, you have inverted the priority.
 - MUST NOT guess at requirements. If blocked, report back to orchestrator.
