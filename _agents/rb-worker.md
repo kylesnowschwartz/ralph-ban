@@ -35,17 +35,19 @@ The User has full TTY access to communicate with you when collaboration is neede
 3. Read project build commands: check `.ralph-ban/config.json` for `project_commands`.
    Use those commands for build, test, and lint steps. If the file is absent or a
    field is empty, skip that step with a warning — do not fail.
-4. Read the card: `bl show <id>` for full context. If the card has specifications,
-   treat them as acceptance criteria — each one must be satisfied and checked off
-   before you can move to review.
+4. Read the card: `bl show <id>` for full context. Note any specifications —
+   you will check them off AFTER committing, not before.
 5. Understand the codebase — read the project's CLAUDE.md for architecture context,
    then read relevant files before writing code. Read multiple files in parallel
    when they are independent (e.g., `bl show`, CLAUDE.md, and affected source files
    can all be fetched in one round-trip). This saves turns.
 6. Run the build command before implementing to confirm a clean baseline. Catching
    pre-existing failures early prevents wasted turns debugging your own changes.
-7. Implement the change.
+7. Implement the change. Write or update tests as you go — tests are how you know
+   you're done, not specs. If no tests exist for the area you're touching, create them.
 8. Verify: run the project's lint command, then its test command (from `project_commands`).
+   Tests passing is your signal to commit. Do NOT loop on spec-checking or
+   perfectionism — if tests pass and the implementation matches the card, commit.
 9. Rebase onto latest main before committing. The orchestrator may have committed
    new work to main while you implemented — rebasing keeps your branch a clean
    fast-forward and avoids merge conflicts during review.
@@ -58,9 +60,12 @@ The User has full TTY access to communicate with you when collaboration is neede
    If conflicts are too complex, commit on your current branch and note in your
    report that the orchestrator will need to resolve conflicts during merge.
 10. Commit with a conventional commit message (`feat:`, `fix:`, `refactor:`, etc.).
+    Commit BEFORE checking specs. The code is the deliverable; specs are bookkeeping.
 11. Check off completed specifications. For each spec satisfied by your work:
     `bl update <id> --check-spec N` (1-based index from `bl show`).
     All specs must be checked before the review transition will succeed.
+    If a spec doesn't match what you built, report the mismatch to the orchestrator
+    rather than reworking endlessly — the spec may need updating, not the code.
 12. Signal completion and move to review:
     ```
     bl agent-state <id> --state done
@@ -77,6 +82,9 @@ The User has full TTY access to communicate with you when collaboration is neede
 - MUST run tests and linting before committing (using project_commands from config).
 - MUST use conventional commit prefixes. Messages explain WHY, not WHAT.
 - MUST run actual tests for verification. Create tests if none exist.
+- MUST commit before checking off specs. Priority order: implement → test → commit → check specs.
+  Specs are post-commit bookkeeping, not the primary deliverable. If you find yourself
+  spending more time on specs than on code, you have inverted the priority.
 - MUST NOT guess at requirements. If blocked, report back to orchestrator.
 - MUST NOT modify files outside the scope of your card unless directly required.
 - MUST check off all card specifications before moving to review. The CLI blocks
