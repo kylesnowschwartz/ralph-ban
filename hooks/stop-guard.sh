@@ -213,13 +213,34 @@ EOF
     directive+=$'\n\n'"NEXT ACTION: ${next_action}"
   fi
 
-  directive+=$(
-    cat <<'LOOP'
+  # Detect the "all dispatched, waiting for workers" state: cards are in doing
+  # but there's nothing actionable to dispatch or claim. The generic "ralph loop"
+  # guidance is wrong here — telling the agent to "dispatch or claim work" when
+  # there's nothing to dispatch just produces empty acknowledgments that burn
+  # stop cycles. Instead, point to Phase 2.5 productive-waiting activities.
+  if [ "$todo_count" -eq 0 ] && [ "$doing_count" -gt 0 ] && [ -z "$next_action" ]; then
+    directive+=$(
+      cat <<'WAITING'
+
+
+All cards are dispatched — workers are running. Use the wait productively (Phase 2.5):
+- Groom backlog: break large cards into smaller ones, add specs to cards that lack them, add missing dependencies
+- Review prep: read the files workers are modifying so you review faster when they return
+- Small direct fixes: doc typos, config changes, hook tweaks — anything that won't conflict with worker scope
+- Write the worker marker if you haven't: echo $(date +%s) > .ralph-ban/.workers-active
+
+When workers complete, transition to Phase 3 (review). The board will advance when you merge their work.
+WAITING
+    )
+  else
+    directive+=$(
+      cat <<'LOOP'
 
 
 The ralph loop: read the board, dispatch or claim work, implement, review, merge, repeat. This hook fires because work remains. The only way it stops firing is board progress — cards moving right or closing.
 LOOP
-  )
+    )
+  fi
 
   if [ "$stop_mode" = "autonomous" ]; then
     directive+=$'\n\n'"Autonomous mode: merge reviewed cards without asking — reviewer approval is sufficient. Dispatch the next card immediately."

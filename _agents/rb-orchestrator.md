@@ -123,7 +123,7 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
   Re-assess whether the card is ready for a worker or needs further breakdown.
   Before spawning any worker, write the activity marker so the stop hook
   pauses cleanly while workers run:
-    touch .ralph-ban/.workers-active
+    echo $(date +%s) > .ralph-ban/.workers-active
   Do NOT pre-claim or pre-move cards. The worker template handles its own
   lifecycle: bl claim --agent ${CLAUDE_AGENT_NAME:-worker} (atomically sets doing) -> implement ->
   bl update --status review. The orchestrator dispatches; the worker owns the card.

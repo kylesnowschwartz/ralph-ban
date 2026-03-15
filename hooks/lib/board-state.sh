@@ -464,13 +464,25 @@ clear_worker_marker() {
 
 # check_worker_marker returns 0 (workers active) or 1 (no active workers).
 # Returns 1 if the marker is missing or older than WORKER_MARKER_TTL_SECONDS.
+#
+# Reads content as a Unix timestamp if present. Falls back to file mtime when
+# content is empty or non-numeric (e.g., orchestrator used `touch` instead of
+# `echo $(date +%s) >`). This eliminates a silent failure mode where `touch`
+# creates a valid file but check_worker_marker sees epoch-0 and auto-expires it.
 check_worker_marker() {
   if [ ! -f "$WORKER_MARKER_FILE" ]; then
     return 1
   fi
 
   local marker_ts now elapsed
-  marker_ts=$(cat "$WORKER_MARKER_FILE" 2>/dev/null || echo "0")
+  marker_ts=$(cat "$WORKER_MARKER_FILE" 2>/dev/null || echo "")
+
+  # Fall back to file mtime when content isn't a valid timestamp.
+  # This handles `touch` (empty file) and any other non-numeric content.
+  if ! [[ "$marker_ts" =~ ^[0-9]+$ ]]; then
+    marker_ts=$(stat -f %m "$WORKER_MARKER_FILE" 2>/dev/null || echo "0")
+  fi
+
   now=$(date +%s)
   elapsed=$((now - marker_ts))
 

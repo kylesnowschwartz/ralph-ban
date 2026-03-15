@@ -158,9 +158,9 @@ stall_warnings=$(
   # Use a null delimiter to handle spaces in titles safely.
   while IFS=$'\t' read -r card_id agent last_activity; do
     [ -z "$last_activity" ] && continue
-    # Convert ISO 8601 timestamp to epoch. Strip fractional seconds and colon
-    # from tz offset so macOS date -j can parse it.
-    ts_clean=$(echo "$last_activity" | sed 's/\.[0-9]*//' | sed 's/:\([0-9][0-9]\)$/\1/')
+    # Convert ISO 8601 timestamp to epoch. Strip fractional seconds, replace
+    # Z with +0000, and strip colon from tz offset so macOS date -j can parse it.
+    ts_clean=$(echo "$last_activity" | sed 's/\.[0-9]*//' | sed 's/Z$/+0000/' | sed 's/:\([0-9][0-9]\)$/\1/')
     last_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$ts_clean" "+%s" 2>/dev/null || true)
     [ -z "$last_epoch" ] && continue
     age=$((now - last_epoch))

@@ -129,7 +129,7 @@ test_session_start_with_tasks() {
   out=$(run_hook "$HOOKS_DIR/session-start.sh")
   assert_contains "$out" "additionalContext" "session-start: outputs additionalContext with tasks"
   assert_contains "$out" "Priority Task" "session-start: suggests highest priority task"
-  assert_contains "$out" "ready" "session-start: mentions ready items"
+  assert_contains "$out" "todo" "session-start: mentions todo items"
   teardown
 }
 
@@ -184,15 +184,20 @@ test_board_sync_tracks_stall() {
   local id
   id=$(extract_id "$(bl create "Stalling Task")")
   bl update "$id" --status doing >/dev/null
+  bl claim "$id" --agent test-worker >/dev/null
+  bl agent-state "$id" --state running >/dev/null
+  # Backdate last_activity beyond STALL_ACTIVITY_MINUTES threshold.
+  # Use ISO 8601 with numeric offset (not Z) — macOS date -j needs +HHMM.
+  local stale_ts
+  stale_ts=$(date -u -v-60M "+%Y-%m-%dT%H:%M:%S+00:00")
+  sqlite3 .beads-lite/beads.db "UPDATE issues SET last_activity = '$stale_ts' WHERE id = '$id'"
   run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
 
-  export STALL_THRESHOLD=3
-  local out=""
-  for _ in $(seq 1 4); do
-    out=$(run_hook "$HOOKS_DIR/board-sync.sh")
-  done
+  export STALL_ACTIVITY_MINUTES=1
+  local out
+  out=$(run_hook "$HOOKS_DIR/board-sync.sh")
   assert_contains "$out" "STALL" "board-sync: detects stalled card after threshold"
-  unset STALL_THRESHOLD
+  unset STALL_ACTIVITY_MINUTES
   teardown
 }
 
@@ -270,7 +275,8 @@ test_stop_guard_batch_explicit_blocks_doing() {
   local out
   out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
   assert_contains "$out" '"block"' "stop-guard batch: explicit config blocks doing"
-  assert_contains "$out" "batch" "stop-guard batch: explicit config reports mode in block"
+  # Batch mode blocks on doing cards but doesn't append "Autonomous mode" trailer
+  assert_not_contains "$out" "Autonomous mode" "stop-guard batch: explicit config does not report autonomous"
   teardown
 }
 
@@ -281,7 +287,7 @@ test_stop_guard_autonomous_blocks_todo() {
   local out
   out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
   assert_contains "$out" '"block"' "stop-guard autonomous: blocks on todo cards"
-  assert_contains "$out" "autonomous" "stop-guard autonomous: reports mode"
+  assert_contains "$out" "Autonomous mode" "stop-guard autonomous: reports mode"
   teardown
 }
 
@@ -376,7 +382,7 @@ test_stop_guard_anti_loop_blocks_autonomous() {
   local out
   out=$(run_hook_with_input '{"stop_hook_active":true}' "$HOOKS_DIR/stop-guard.sh")
   assert_contains "$out" '"block"' "stop-guard anti-loop: autonomous mode still blocks"
-  assert_contains "$out" "autonomous" "stop-guard anti-loop: reports autonomous mode"
+  assert_contains "$out" "Autonomous mode" "stop-guard anti-loop: reports autonomous mode"
   teardown
 }
 
@@ -503,8 +509,40 @@ test_stop_guard_guidance_unclaimed_doing() {
   bl update "$id" --status doing >/dev/null
   local out
   out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
-  assert_contains "$out" "no assignee" "stop-guard guidance: highlights unclaimed doing card"
+  assert_contains "$out" "no active agent" "stop-guard guidance: highlights unclaimed doing card"
   assert_contains "$out" '"block"' "stop-guard guidance: blocks with unclaimed doing guidance"
+  teardown
+}
+
+test_stop_guard_guidance_waiting_for_workers() {
+  setup
+  local id
+  id=$(extract_id "$(bl create "Dispatched Task")")
+  bl update "$id" --status doing >/dev/null
+  bl claim "$id" --agent test-worker >/dev/null
+  bl agent-state "$id" --state running >/dev/null
+  echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  assert_contains "$out" '"block"' "stop-guard guidance: blocks when workers running"
+  assert_contains "$out" "Phase 2.5" "stop-guard guidance: suggests productive waiting"
+  assert_not_contains "$out" "dispatch or claim" "stop-guard guidance: omits generic ralph loop"
+  teardown
+}
+
+test_stop_guard_worker_marker_touch_fallback() {
+  setup
+  local id
+  id=$(extract_id "$(bl create "Marker Test")")
+  bl update "$id" --status doing >/dev/null
+  # Use touch (empty file) instead of echo timestamp — the mtime fallback
+  # should still detect the marker as fresh.
+  touch .ralph-ban/.workers-active
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  # Worker marker detected — should pass through quietly, not block
+  assert_not_contains "$out" '"block"' "stop-guard: touch marker detected via mtime fallback"
+  assert_contains "$out" "Workers are running" "stop-guard: worker marker shows waiting message"
   teardown
 }
 
@@ -525,7 +563,7 @@ test_stop_guard_debounce_first_call_shows_message() {
   teardown
 }
 
-test_stop_guard_debounce_suppresses_repeat() {
+test_stop_guard_debounce_stall_counter_defeats() {
   setup
   local id
   id=$(extract_id "$(bl create "Doing Task")")
@@ -534,11 +572,13 @@ test_stop_guard_debounce_suppresses_repeat() {
   rm -f .ralph-ban/.stop-last-msg-hash
   # First call emits and saves hash
   run_hook "$HOOKS_DIR/stop-guard.sh" >/dev/null
-  # Second call with identical board — systemMessage should be stripped
+  # Second call — stall counter increments, changing the message hash.
+  # This is by design: each stop attempt should show full guidance so
+  # the agent always sees how many attempts remain.
   local out
   out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
   assert_contains "$out" '"block"' "debounce: second call still blocks"
-  assert_not_contains "$out" "systemMessage" "debounce: second identical call omits systemMessage"
+  assert_contains "$out" "systemMessage" "debounce: stall counter defeats debounce"
   teardown
 }
 
