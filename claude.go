@@ -99,6 +99,10 @@ func runClaude(args []string) {
 		os.Exit(1)
 	}
 
+	// Refresh plugin/agents if the binary is newer than what's extracted.
+	// This keeps projects in sync after `ralph-ban update` without manual init.
+	ensurePlugin()
+
 	claudeBin, err := exec.LookPath("claude")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude not found in PATH. Install Claude Code first.\n")

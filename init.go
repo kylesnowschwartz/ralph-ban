@@ -203,10 +203,12 @@ func installAgents(srcDir, destDir string) error {
 // (e.g. settings.json after hooks moved to hooks/hooks.json) don't linger.
 // This is safe because destDir is fully managed by ralph-ban — user
 // configuration lives in .ralph-ban/config.json, outside the plugin tree.
+//
+// A .version file is written last so ensurePlugin can detect stale extractions.
 func extractPlugin(destDir string) error {
 	os.RemoveAll(destDir)
 
-	return fs.WalkDir(pluginFS, ".", func(path string, d fs.DirEntry, err error) error {
+	if err := fs.WalkDir(pluginFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -231,7 +233,38 @@ func extractPlugin(destDir string) error {
 		}
 
 		return os.WriteFile(target, data, perm)
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Stamp the extraction so ensurePlugin can detect stale versions.
+	return os.WriteFile(filepath.Join(destDir, ".version"), []byte(Version+"\n"), 0644)
+}
+
+// ensurePlugin re-extracts the plugin and agents if the binary version is newer
+// than what was last extracted. Called on every `ralph-ban claude` launch so
+// projects stay in sync after `ralph-ban update` without manual `init`.
+func ensurePlugin() {
+	pluginDir := filepath.Join(ralphBanDir, "plugin")
+	versionFile := filepath.Join(pluginDir, ".version")
+
+	// Read the stamp. Missing or mismatched = needs refresh.
+	data, err := os.ReadFile(versionFile)
+	if err == nil && strings.TrimSpace(string(data)) == Version {
+		return // already current
+	}
+
+	// Re-extract plugin and install agents. Errors are non-fatal — the session
+	// can still work with stale agents, and init will fix it later.
+	if err := extractPlugin(pluginDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to refresh plugin: %v\n", err)
+		return
+	}
+	if err := installAgents(filepath.Join(pluginDir, "agents"), ".claude/agents"); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to refresh agents: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Refreshed plugin and agents to %s\n", Version)
 }
 
 // writeDefaultConfig serializes defaultConfig to the given path.
