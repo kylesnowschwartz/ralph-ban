@@ -31,7 +31,7 @@ func runUpdate(w io.Writer) error {
 		return fmt.Errorf("resolve symlink for ralph-ban: %w", err)
 	}
 
-	updatedRalphBan, err := updateBinary(w, "ralph-ban", "kylesnowschwartz/ralph-ban", "ralph-ban", exePath)
+	updatedRalphBan, err := updateBinary(w, "ralph-ban", "kylesnowschwartz/ralph-ban", "ralph-ban", exePath, Version)
 	if err != nil {
 		return fmt.Errorf("ralph-ban update: %w", err)
 	}
@@ -45,7 +45,8 @@ func runUpdate(w io.Writer) error {
 		if err != nil {
 			fmt.Fprintf(w, "Warning: resolve symlink for bl: %v — skipping bl update\n", err)
 		} else {
-			if _, err := updateBinary(w, "bl", "kylesnowschwartz/beads-lite", "bl", blPath); err != nil {
+			blVer := blVersion(blPath)
+			if _, err := updateBinary(w, "bl", "kylesnowschwartz/beads-lite", "bl", blPath, blVer); err != nil {
 				return fmt.Errorf("bl update: %w", err)
 			}
 		}
@@ -68,25 +69,27 @@ func runUpdate(w io.Writer) error {
 
 // updateBinary checks whether binaryName (from owner/repo) has a release newer
 // than current, and if so downloads and replaces the binary at destPath.
+// currentVer is the installed version of the specific binary being updated.
 // Returns true if the binary was updated.
-func updateBinary(w io.Writer, displayName, repo, binaryName, destPath string) (bool, error) {
+func updateBinary(w io.Writer, displayName, repo, binaryName, destPath, currentVer string) (bool, error) {
 	latest, err := latestRelease(repo)
 	if err != nil {
 		return false, fmt.Errorf("fetch latest release: %w", err)
 	}
 
-	// Strip leading "v" from both sides before comparing.
 	latestVer := strings.TrimPrefix(latest, "v")
-	currentVer := strings.TrimPrefix(Version, "v")
+	currentVer = strings.TrimPrefix(currentVer, "v")
 
-	// For bl we don't have a Version variable, so we can't compare — always update.
-	// (displayName == "ralph-ban" is the only case where Version applies.)
-	if displayName == "ralph-ban" && latestVer == currentVer {
+	if currentVer != "" && latestVer == currentVer {
 		fmt.Fprintf(w, "%s is already up to date (%s)\n", displayName, currentVer)
 		return false, nil
 	}
 
-	fmt.Fprintf(w, "Updating %s: %s -> %s\n", displayName, currentVer, latestVer)
+	if currentVer != "" {
+		fmt.Fprintf(w, "Updating %s: %s -> %s\n", displayName, currentVer, latestVer)
+	} else {
+		fmt.Fprintf(w, "Updating %s to %s\n", displayName, latestVer)
+	}
 
 	if err := downloadAndReplace(repo, latest, binaryName, destPath); err != nil {
 		return false, err
@@ -94,6 +97,21 @@ func updateBinary(w io.Writer, displayName, repo, binaryName, destPath string) (
 
 	fmt.Fprintf(w, "Updated %s to %s\n", displayName, latestVer)
 	return true, nil
+}
+
+// blVersion runs `bl version` and parses the version string.
+// Returns empty string if bl can't report its version.
+func blVersion(blPath string) string {
+	out, err := exec.Command(blPath, "version").Output()
+	if err != nil {
+		return ""
+	}
+	// Output format: "bl version 1.5.1"
+	parts := strings.Fields(strings.TrimSpace(string(out)))
+	if len(parts) >= 3 {
+		return parts[2]
+	}
+	return ""
 }
 
 // latestRelease returns the tag_name of the latest release for owner/repo.
