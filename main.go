@@ -26,7 +26,7 @@ Commands:
   update       update ralph-ban and bl to latest releases
 
 Quick start:
-  ralph-ban init --seed                         # new project with starter cards
+  ralph-ban init --demo                          # new project with demo board
   ralph-ban                                     # open the board
 
 Run the orchestrator:

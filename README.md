@@ -29,7 +29,7 @@ go build .
 Initialize a project, then open the board:
 
 ```bash
-ralph-ban init --seed    # create .ralph-ban/ config + .beads-lite/ database
+ralph-ban init --demo    # create project with a demo board (Conway's Game of Life)
 ralph-ban                # open the board
 ```
 

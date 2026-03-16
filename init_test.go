@@ -82,42 +82,42 @@ func TestFileExists_Directory(t *testing.T) {
 	}
 }
 
-// --- seedStarterCards ---
+// --- seedDemoCards ---
 
-func TestSeedStarterCards_CreatesExpectedCount(t *testing.T) {
+func TestSeedDemoCards_CreatesExpectedCount(t *testing.T) {
 	store, err := beadslite.NewStore(":memory:")
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	defer store.Close()
 
-	count, err := seedStarterCards(store)
+	count, err := seedDemoCards(store)
 	if err != nil {
-		t.Fatalf("seedStarterCards: %v", err)
+		t.Fatalf("seedDemoCards: %v", err)
 	}
 
-	if count != len(starterCards) {
-		t.Errorf("seeded %d cards, want %d", count, len(starterCards))
+	if count != len(demoCards) {
+		t.Errorf("seeded %d cards, want %d", count, len(demoCards))
 	}
 
 	issues, err := store.ListIssues()
 	if err != nil {
 		t.Fatalf("ListIssues: %v", err)
 	}
-	if len(issues) != len(starterCards) {
-		t.Errorf("store has %d issues, want %d", len(issues), len(starterCards))
+	if len(issues) != len(demoCards) {
+		t.Errorf("store has %d issues, want %d", len(issues), len(demoCards))
 	}
 }
 
-func TestSeedStarterCards_AllInBacklog(t *testing.T) {
+func TestSeedDemoCards_AllInTodo(t *testing.T) {
 	store, err := beadslite.NewStore(":memory:")
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	defer store.Close()
 
-	if _, err := seedStarterCards(store); err != nil {
-		t.Fatalf("seedStarterCards: %v", err)
+	if _, err := seedDemoCards(store); err != nil {
+		t.Fatalf("seedDemoCards: %v", err)
 	}
 
 	issues, err := store.ListIssues()
@@ -126,21 +126,21 @@ func TestSeedStarterCards_AllInBacklog(t *testing.T) {
 	}
 
 	for _, issue := range issues {
-		if issue.Status != beadslite.StatusBacklog {
-			t.Errorf("starter card %q has status %q, want backlog", issue.Title, issue.Status)
+		if issue.Status != beadslite.StatusTodo {
+			t.Errorf("demo card %q has status %q, want todo", issue.Title, issue.Status)
 		}
 	}
 }
 
-func TestSeedStarterCards_PrioritySorting(t *testing.T) {
+func TestSeedDemoCards_PrioritySorting(t *testing.T) {
 	store, err := beadslite.NewStore(":memory:")
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	defer store.Close()
 
-	if _, err := seedStarterCards(store); err != nil {
-		t.Fatalf("seedStarterCards: %v", err)
+	if _, err := seedDemoCards(store); err != nil {
+		t.Fatalf("seedDemoCards: %v", err)
 	}
 
 	issues, err := store.ListIssues()
@@ -148,11 +148,81 @@ func TestSeedStarterCards_PrioritySorting(t *testing.T) {
 		t.Fatalf("ListIssues: %v", err)
 	}
 
-	// Issues are ordered by priority ASC; starter cards are assigned P0, P1, P2.
+	// Priority is capped at P4. First 5 cards are P0-P4, remaining share P4.
 	for i, issue := range issues {
-		if issue.Priority != i {
-			t.Errorf("issue[%d] priority = %d, want %d", i, issue.Priority, i)
+		want := min(i, 4)
+		if issue.Priority != want {
+			t.Errorf("issue[%d] priority = %d, want %d", i, issue.Priority, want)
 		}
+	}
+}
+
+func TestSeedDemoCards_HaveSpecs(t *testing.T) {
+	store, err := beadslite.NewStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := seedDemoCards(store); err != nil {
+		t.Fatalf("seedDemoCards: %v", err)
+	}
+
+	issues, err := store.ListIssues()
+	if err != nil {
+		t.Fatalf("ListIssues: %v", err)
+	}
+
+	for _, issue := range issues {
+		if len(issue.Specifications) == 0 {
+			t.Errorf("demo card %q has no specs", issue.Title)
+		}
+	}
+}
+
+func TestSeedDemoCards_HaveIssueTypes(t *testing.T) {
+	store, err := beadslite.NewStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := seedDemoCards(store); err != nil {
+		t.Fatalf("seedDemoCards: %v", err)
+	}
+
+	issues, err := store.ListIssues()
+	if err != nil {
+		t.Fatalf("ListIssues: %v", err)
+	}
+
+	for _, issue := range issues {
+		if !issue.Type.Valid() {
+			t.Errorf("demo card %q has invalid type %q", issue.Title, issue.Type)
+		}
+	}
+}
+
+func TestWriteDemoCLAUDEmd(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	if err := writeDemoCLAUDEmd(); err != nil {
+		t.Fatalf("writeDemoCLAUDEmd: %v", err)
+	}
+
+	data, err := os.ReadFile("CLAUDE.md")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if !strings.Contains(string(data), "Conway") {
+		t.Error("CLAUDE.md missing Conway's Game of Life content")
+	}
+	if !strings.Contains(string(data), "go build") {
+		t.Error("CLAUDE.md missing build instructions")
 	}
 }
 

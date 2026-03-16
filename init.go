@@ -51,17 +51,28 @@ var defaultConfig = boardConfig{
 // rather than replaced. This lets projects that already run `bl init` start
 // using the TUI without disrupting their data.
 //
-// If --seed is passed, a small set of starter cards is created in Backlog so
-// the board opens with something visible instead of empty columns.
+// If --demo is passed, a Conway's Game of Life project is seeded onto the board
+// with cards in Todo so the orchestrator picks them up immediately. A CLAUDE.md
+// is written to give the agent project context. Designed for throwaway directories
+// where users can watch the full agent workflow end-to-end.
 func runInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	seedFlag := fs.Bool("seed", false, "create starter cards in Backlog")
+	demoFlag := fs.Bool("demo", false, "seed a demo project (Conway's Game of Life) onto the board")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: ralph-ban init [flags]\n\nInitialize a new ralph-ban project in the current directory.\nCreates .ralph-ban/ (config) and .beads-lite/ (database).\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
-	seed := *seedFlag
+	demo := *demoFlag
+
+	// --- Step 0: Verify git repo ---
+	// Agent worktrees, hooks, and the post-checkout symlink chain all require git.
+	// Fail early with a clear message rather than failing later in confusing ways.
+	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+		fmt.Fprintln(os.Stderr, "Error: not a git repository.")
+		fmt.Fprintln(os.Stderr, "Run 'git init' first — ralph-ban needs git for agent worktrees and hooks.")
+		os.Exit(1)
+	}
 
 	// --- Step 1: Create .ralph-ban/ config directory ---
 	if err := os.MkdirAll(ralphBanDir, 0755); err != nil {
@@ -107,12 +118,16 @@ func runInit(args []string) {
 		}
 	}
 
-	// --- Step 3: Optionally seed starter cards ---
+	// --- Step 3: Optionally seed demo project ---
 	seeded := 0
-	if seed && !dbExisted {
-		seeded, err = seedStarterCards(store)
+	if demo && !dbExisted {
+		seeded, err = seedDemoCards(store)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to seed starter cards: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to seed demo cards: %v\n", err)
+			os.Exit(1)
+		}
+		if err := writeDemoCLAUDEmd(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write CLAUDE.md: %v\n", err)
 			os.Exit(1)
 		}
 	}
@@ -168,7 +183,8 @@ func runInit(args []string) {
 	} else {
 		fmt.Printf("  %-24s  %s\n", dbPath, "(new database created)")
 		if seeded > 0 {
-			fmt.Printf("  %-24s  seeded %d starter cards in Backlog\n", "", seeded)
+			fmt.Printf("  %-24s  seeded %d demo cards in Todo\n", "", seeded)
+			fmt.Printf("  %-24s  %s\n", "CLAUDE.md", "project context for agents")
 		}
 	}
 	fmt.Printf("  %-24s  %s\n", pluginDir+"/", "hooks + agents extracted")
@@ -387,36 +403,169 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// starterCards defines the seed data created when running `ralph-ban init --seed`.
-// These are placed in Backlog so the user triages them deliberately.
-var starterCards = []struct {
+// demoCards defines the Conway's Game of Life project seeded by `ralph-ban init --demo`.
+// Cards are placed in Todo so the orchestrator picks them up immediately. Each card
+// carries specs (acceptance criteria) so agents know when the work is done.
+var demoCards = []struct {
 	title       string
+	issueType   beadslite.IssueType
 	description string
+	specs       []string
 }{
 	{
-		title:       "Add your first task",
-		description: "Press 'n' to create a new card, or run 'bl create \"task title\"' from the CLI.",
+		title:     "Initialize Go project",
+		issueType: beadslite.IssueTypeTask,
+		description: `Set up the Go module and entry point for the Game of Life CLI.
+
+The project should compile and run from the start — even if it only prints "hello" initially.`,
+		specs: []string{
+			"go.mod exists with a module name",
+			"main.go compiles with go build",
+			"Running the binary prints output to stdout",
+		},
 	},
 	{
-		title:       "Move a card to Todo",
-		description: "Select a card and press 'l' (or right arrow) to move it right across columns.",
+		title:     "Implement grid and cell state",
+		issueType: beadslite.IssueTypeFeature,
+		description: `Create the core data structure: a 2D grid of cells, each alive or dead.
+
+The grid wraps at edges (toroidal topology) so gliders and other patterns don't crash into walls.
+Include a function to randomly populate the grid for initial state.`,
+		specs: []string{
+			"Grid struct with configurable width and height",
+			"Cells are alive or dead (boolean)",
+			"Grid wraps at edges (toroidal)",
+			"Random population function seeds the grid",
+		},
 	},
 	{
-		title:       "Edit a card",
-		description: "Select a card and press 'e' to open the edit form. Press Enter to save, Esc to cancel.",
+		title:     "Implement Game of Life rules",
+		issueType: beadslite.IssueTypeFeature,
+		description: `Apply Conway's rules to compute the next generation from the current grid.
+
+Rules:
+- A live cell with 2 or 3 neighbors survives
+- A dead cell with exactly 3 neighbors becomes alive
+- All other cells die or stay dead
+
+This should be a pure function: takes a grid, returns a new grid. No mutation of the input.`,
+		specs: []string{
+			"Pure function: input grid -> output grid (no mutation)",
+			"Live cell with 2-3 neighbors survives",
+			"Dead cell with exactly 3 neighbors is born",
+			"All other cells die or stay dead",
+			"Neighbor count respects toroidal wrapping",
+		},
+	},
+	{
+		title:     "Terminal renderer with tick loop",
+		issueType: beadslite.IssueTypeFeature,
+		description: `Render the grid to the terminal and animate generations in a loop.
+
+Use ANSI escape codes to clear the screen between frames. Display a generation counter.
+The tick speed should be configurable (default ~200ms). Ctrl-C exits cleanly.`,
+		specs: []string{
+			"ANSI clear screen between frames",
+			"Alive and dead cells use distinct characters",
+			"Generation counter displayed",
+			"Configurable tick speed (default 200ms)",
+			"Ctrl-C exits cleanly",
+		},
+	},
+	{
+		title:     "CLI flags for configuration",
+		issueType: beadslite.IssueTypeFeature,
+		description: `Add command-line flags so users can configure the simulation without editing code.
+
+Use Go's standard flag package.`,
+		specs: []string{
+			"--width flag (default 40)",
+			"--height flag (default 20)",
+			"--speed flag in milliseconds (default 200)",
+			"--pattern flag to select a preset (default random)",
+			"--help shows usage",
+		},
+	},
+	{
+		title:     "Preset patterns",
+		issueType: beadslite.IssueTypeFeature,
+		description: `Add classic Game of Life patterns that can be selected via the --pattern flag.
+
+Place each pattern centered in the grid. If the grid is too small, warn and exit.`,
+		specs: []string{
+			"Glider pattern",
+			"Blinker pattern",
+			"Pulsar pattern",
+			"Patterns are centered in the grid",
+			"--pattern random fills randomly (default behavior)",
+		},
+	},
+	{
+		title:     "README with usage instructions",
+		issueType: beadslite.IssueTypeTask,
+		description: `Write a README.md covering how to build, run, and configure the Game of Life CLI.
+
+Include example commands and a brief description of what the project does.`,
+		specs: []string{
+			"Build instructions (go build)",
+			"Usage examples with flags",
+			"List of available patterns",
+			"Brief project description",
+		},
 	},
 }
 
-// seedStarterCards creates the starter cards in the store and returns how many were created.
-func seedStarterCards(store *beadslite.Store) (int, error) {
-	for i, sc := range starterCards {
-		issue := beadslite.NewIssue(sc.title)
-		issue.Status = beadslite.StatusBacklog
-		issue.Priority = i // P0, P1, P2 so they sort top-to-bottom
-		issue.Description = sc.description
+// seedDemoCards creates the demo project cards in the store and returns how many were created.
+func seedDemoCards(store *beadslite.Store) (int, error) {
+	for i, dc := range demoCards {
+		issue := beadslite.NewIssue(dc.title)
+		issue.Status = beadslite.StatusTodo
+		issue.Priority = min(i, 4) // P0-P4 (capped); later cards share P4 but sort by creation order
+		issue.Type = dc.issueType
+		issue.Description = dc.description
+		for _, spec := range dc.specs {
+			issue.Specifications = append(issue.Specifications, beadslite.Spec{Text: spec})
+		}
 		if err := store.CreateIssue(issue); err != nil {
-			return i, fmt.Errorf("create starter card %q: %w", sc.title, err)
+			return i, fmt.Errorf("create demo card %q: %w", dc.title, err)
 		}
 	}
-	return len(starterCards), nil
+	return len(demoCards), nil
+}
+
+// demoCLAUDEmd is the CLAUDE.md content written by --demo to give agents project context.
+const demoCLAUDEmd = `# Conway's Game of Life CLI
+
+Go command-line program that simulates Conway's Game of Life in the terminal.
+
+## What to build
+
+An animated terminal program that:
+- Displays a grid of cells (alive/dead) using text characters
+- Applies Conway's rules each generation
+- Clears and redraws the terminal each tick
+- Accepts CLI flags for grid size, speed, and preset patterns
+
+## How to build and run
+
+` + "```" + `
+go build -o life .
+./life                          # random 40x20 grid
+./life --width 60 --height 30   # custom size
+./life --pattern glider          # preset pattern
+./life --speed 100               # faster ticks (ms)
+` + "```" + `
+
+## Design guidance
+
+- Keep it simple. Standard library only — no TUI frameworks.
+- The grid wraps at edges (toroidal topology).
+- The step function should be pure: takes a grid, returns a new grid.
+- Use ANSI escape codes for screen clearing, not a TUI library.
+`
+
+// writeDemoCLAUDEmd writes the demo project's CLAUDE.md to the current directory.
+// Only called during --demo init to give agents context about what they're building.
+func writeDemoCLAUDEmd() error {
+	return os.WriteFile("CLAUDE.md", []byte(demoCLAUDEmd), 0644)
 }
