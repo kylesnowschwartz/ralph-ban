@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -176,6 +177,62 @@ func TestProjectCommands_PartialConfig(t *testing.T) {
 	}
 	if cfg.ProjectCommands.Lint != "" {
 		t.Errorf("Lint = %q, want empty when not specified", cfg.ProjectCommands.Lint)
+	}
+}
+
+// --- worktree_symlinks ---
+
+func TestWorktreeSymlinks_DefaultConfig(t *testing.T) {
+	// defaultConfig includes the worktree_symlinks field.
+	data, err := json.MarshalIndent(defaultConfig, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if _, ok := raw["worktree_symlinks"]; !ok {
+		t.Fatal("defaultConfig JSON missing 'worktree_symlinks' key")
+	}
+
+	var cfg boardConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(cfg.WorktreeSymlinks) != 3 {
+		t.Errorf("got %d symlinks, want 3", len(cfg.WorktreeSymlinks))
+	}
+}
+
+func TestWorktreeSymlinks_CustomConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"worktree_symlinks": [".vendor", ".cache"]}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := loadConfig(dir)
+	if len(cfg.WorktreeSymlinks) != 2 {
+		t.Fatalf("got %d symlinks, want 2", len(cfg.WorktreeSymlinks))
+	}
+	if cfg.WorktreeSymlinks[0] != ".vendor" || cfg.WorktreeSymlinks[1] != ".cache" {
+		t.Errorf("symlinks = %v, want [.vendor .cache]", cfg.WorktreeSymlinks)
+	}
+}
+
+func TestWorktreeSymlinks_MissingFieldUsesZeroValue(t *testing.T) {
+	dir := t.TempDir()
+	content := `{"wip_limits": {"doing": 3}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := loadConfig(dir)
+	if cfg.WorktreeSymlinks != nil {
+		t.Errorf("symlinks = %v, want nil when not specified", cfg.WorktreeSymlinks)
 	}
 }
 

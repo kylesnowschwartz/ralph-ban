@@ -117,6 +117,12 @@ GOWORK=off go vet ./...
 
 This uses go.mod's published dependency versions instead of the local workspace.
 
+### Worktree context
+
+Git worktrees only contain tracked files. Gitignored directories are absent by default. A `post-checkout` git hook (installed by `ralph-ban init`) automatically symlinks configured directories from the main repo into new worktrees. Workers can read `.ralph-ban/config.json`, `.agent-history/`, and `.cloned-sources/` as if they were in the main repo.
+
+The directory list is configured in `.ralph-ban/config.json` under `worktree_symlinks`. Defaults: `.agent-history`, `.cloned-sources`, `.ralph-ban`. `.beads-lite` is intentionally excluded — workers access the database through `bl`, which handles path resolution and locking. Set to `[]` to disable symlinks entirely. The hook reads config via `jq` at runtime; if `jq` is unavailable, defaults are used.
+
 SQLite via ncruces/go-sqlite3 (wazero WebAssembly runtime) — no CGo toolchain dependency.
 
 ### Releasing

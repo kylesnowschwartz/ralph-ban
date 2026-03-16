@@ -1,0 +1,43 @@
+#!/bin/bash
+# ralph-ban:managed — symlink gitignored directories into new worktrees.
+# Installed by `ralph-ban init`. Safe to re-run — skips existing entries.
+#
+# Git fires post-checkout after `git worktree add`. We detect worktree creation
+# by checking: (1) first arg is the null ref (no previous HEAD), and (2) .git
+# is a file, not a directory (worktrees use a .git file pointing to the main
+# repo's .git/worktrees/<name>/).
+#
+# The directory list is read from .ralph-ban/config.json (worktree_symlinks).
+# If jq is unavailable or the field is missing, hardcoded defaults are used.
+# An empty array means "no symlinks" — this is intentional, not a fallback case.
+
+NULL_REF="0000000000000000000000000000000000000000"
+
+# Only act on worktree creation, not normal branch switches or clones.
+[[ "$1" != "$NULL_REF" ]] && exit 0
+[[ ! -f .git ]] && exit 0
+
+# Resolve the main worktree (first entry in porcelain output).
+MAIN_WORKTREE="$(git worktree list --porcelain | head -1 | sed 's/worktree //')"
+
+# Read configured directories from the main repo's config.
+# jq outputs "CONFIGURED" (field exists) or "UNCONFIGURED" (field missing) as the
+# first line, followed by directory names. This distinguishes "empty array" (no
+# symlinks wanted) from "field absent" (use defaults).
+DEFAULTS=".agent-history .cloned-sources .ralph-ban"
+CONFIG="$MAIN_WORKTREE/.ralph-ban/config.json"
+
+DIRS="$DEFAULTS"
+if command -v jq >/dev/null 2>&1 && [[ -f "$CONFIG" ]]; then
+    JQ_OUT="$(jq -r 'if has("worktree_symlinks") then "CONFIGURED", (.worktree_symlinks | .[]?) else "UNCONFIGURED" end' "$CONFIG" 2>/dev/null)"
+    if [[ "$(echo "$JQ_OUT" | head -1)" == "CONFIGURED" ]]; then
+        # Field exists — use its values (may be empty, which means no symlinks).
+        DIRS="$(echo "$JQ_OUT" | tail -n +2)"
+    fi
+    # UNCONFIGURED or jq failure: DIRS stays as defaults.
+fi
+
+# Symlink each directory from the main repo into this worktree.
+for dir in $DIRS; do
+    [[ -d "$MAIN_WORKTREE/$dir" ]] && [[ ! -e "$dir" ]] && ln -s "$MAIN_WORKTREE/$dir" "$dir"
+done

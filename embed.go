@@ -14,3 +14,11 @@ import "embed"
 //
 //go:embed all:.claude-plugin _agents hooks
 var pluginFS embed.FS
+
+// gitHooksFS bundles git hooks (post-checkout, etc.) for installation by `ralph-ban init`.
+// These are standard git hooks, separate from the Claude Code hooks in pluginFS.
+// The post-checkout hook symlinks gitignored directories into new worktrees so agents
+// have the same context as the main repo.
+//
+//go:embed githooks
+var gitHooksFS embed.FS

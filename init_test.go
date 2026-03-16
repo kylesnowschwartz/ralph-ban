@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	beadslite "github.com/kylesnowschwartz/beads-lite"
@@ -152,6 +153,130 @@ func TestSeedStarterCards_PrioritySorting(t *testing.T) {
 		if issue.Priority != i {
 			t.Errorf("issue[%d] priority = %d, want %d", i, issue.Priority, i)
 		}
+	}
+}
+
+// --- installGitHooks ---
+
+func TestInstallGitHooks_CreatesPostCheckout(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "hooks")
+
+	skipped, err := installGitHooks(dir)
+	if err != nil {
+		t.Fatalf("installGitHooks: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Errorf("unexpected skipped hooks: %v", skipped)
+	}
+
+	hook := filepath.Join(dir, "post-checkout")
+	info, err := os.Stat(hook)
+	if err != nil {
+		t.Fatalf("post-checkout not installed: %v", err)
+	}
+	if info.Mode()&0111 == 0 {
+		t.Errorf("post-checkout not executable: %v", info.Mode())
+	}
+
+	data, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), hookManaged) {
+		t.Error("post-checkout missing managed marker")
+	}
+}
+
+func TestInstallGitHooks_SkipsUserHook(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "hooks")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// Write a user-authored hook without the managed marker.
+	userHook := []byte("#!/bin/bash\necho custom hook\n")
+	hook := filepath.Join(dir, "post-checkout")
+	if err := os.WriteFile(hook, userHook, 0755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	skipped, err := installGitHooks(dir)
+	if err != nil {
+		t.Fatalf("installGitHooks: %v", err)
+	}
+	if len(skipped) != 1 || skipped[0] != "post-checkout" {
+		t.Errorf("skipped = %v, want [post-checkout]", skipped)
+	}
+
+	data, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != string(userHook) {
+		t.Error("installGitHooks overwrote user-authored hook")
+	}
+}
+
+func TestInstallGitHooks_SkipsHookMentioningProjectName(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "hooks")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// A user hook that mentions ralph-ban but lacks the managed marker.
+	userHook := []byte("#!/bin/bash\n# integrate with ralph-ban\necho custom\n")
+	hook := filepath.Join(dir, "post-checkout")
+	if err := os.WriteFile(hook, userHook, 0755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	skipped, err := installGitHooks(dir)
+	if err != nil {
+		t.Fatalf("installGitHooks: %v", err)
+	}
+	if len(skipped) != 1 {
+		t.Errorf("skipped = %v, want [post-checkout]", skipped)
+	}
+
+	data, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != string(userHook) {
+		t.Error("installGitHooks overwrote user hook that mentions ralph-ban")
+	}
+}
+
+func TestInstallGitHooks_OverwritesOwnHook(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "hooks")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// Write a stale hook with the managed marker.
+	staleHook := []byte("#!/bin/bash\n# ralph-ban:managed — old version\necho stale\n")
+	hook := filepath.Join(dir, "post-checkout")
+	if err := os.WriteFile(hook, staleHook, 0755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	skipped, err := installGitHooks(dir)
+	if err != nil {
+		t.Fatalf("installGitHooks: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Errorf("unexpected skipped hooks: %v", skipped)
+	}
+
+	data, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) == string(staleHook) {
+		t.Error("installGitHooks did not overwrite stale managed hook")
+	}
+	if !strings.Contains(string(data), hookManaged) {
+		t.Error("updated hook missing managed marker")
 	}
 }
 

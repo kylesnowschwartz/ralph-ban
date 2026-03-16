@@ -206,7 +206,9 @@ PHASE 3 - REVIEW: Examine each worker's changes yourself
     - No information leakage between modules
 
   After reviewing all workers, clean up worktrees to unlock branches for merging:
-    git worktree remove <worktree-path>
+    git worktree remove --force <worktree-path>
+  The --force flag is required because the post-checkout hook creates symlinks
+  for gitignored directories, which git considers untracked files.
   Do this for ALL reviewed workers (approved and rejected). Worktrees have served
   their purpose — the branch and commits persist in git after removal.
 

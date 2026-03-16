@@ -6,11 +6,18 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	beadslite "github.com/kylesnowschwartz/beads-lite"
 )
+
+// hookManaged is the marker comment that identifies a git hook as ralph-ban managed.
+// installGitHooks checks for this exact string before overwriting. Using a structured
+// marker (not just "ralph-ban") avoids false positives on user hooks that mention
+// the project name in comments or commands.
+const hookManaged = "ralph-ban:managed"
 
 const (
 	ralphBanDir = ".ralph-ban"
@@ -28,7 +35,8 @@ var defaultConfig = boardConfig{
 		"doing":  3,
 		"review": 2,
 	},
-	ProjectCommands: ProjectCommands{},
+	ProjectCommands:  ProjectCommands{},
+	WorktreeSymlinks: defaultWorktreeSymlinks,
 }
 
 // runInit bootstraps a new ralph-ban project in the current directory.
@@ -126,7 +134,27 @@ func runInit(args []string) {
 		os.Exit(1)
 	}
 
-	// --- Step 6: Report results ---
+	// --- Step 6: Install git hooks ---
+	// The post-checkout hook symlinks gitignored directories (.agent-history/,
+	// .cloned-sources/, .ralph-ban/) into new worktrees so agents
+	// have the same context as the main repo. Without this, workers in isolated
+	// worktrees can't find reference material or project configuration.
+	gitHooksInstalled := false
+	hooksDir, err := resolveGitHooksDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: skipping git hooks: %v\n", err)
+	} else if skipped, err := installGitHooks(hooksDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not install git hooks: %v\n", err)
+	} else {
+		gitHooksInstalled = true
+		for _, name := range skipped {
+			fmt.Fprintf(os.Stderr, "Warning: existing %s hook found — ralph-ban won't overwrite it.\n", name)
+			fmt.Fprintf(os.Stderr, "  Agent worktrees won't have symlinks to gitignored directories.\n")
+			fmt.Fprintf(os.Stderr, "  To fix: add the contents of githooks/%s to your existing hook.\n", name)
+		}
+	}
+
+	// --- Step 7: Report results ---
 	fmt.Println("Initialized ralph-ban:")
 	fmt.Printf("  %-24s  %s\n", ralphBanDir+"/", "board configuration")
 	if configCreated {
@@ -145,6 +173,9 @@ func runInit(args []string) {
 	}
 	fmt.Printf("  %-24s  %s\n", pluginDir+"/", "hooks + agents extracted")
 	fmt.Printf("  %-24s  %s\n", ".claude/agents/", "agents installed for --agent discovery")
+	if gitHooksInstalled {
+		fmt.Printf("  %-24s  %s\n", ".git/hooks/", "post-checkout hook for worktree symlinks")
+	}
 
 	fmt.Println()
 	fmt.Println("Run 'ralph-ban' to open the board.")
@@ -264,7 +295,79 @@ func ensurePlugin() {
 		fmt.Fprintf(os.Stderr, "Warning: failed to refresh agents: %v\n", err)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "Refreshed plugin and agents to %s\n", Version)
+	hooksRefreshed := false
+	if hooksDir, err := resolveGitHooksDir(); err == nil {
+		if _, err := installGitHooks(hooksDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to refresh git hooks: %v\n", err)
+		} else {
+			hooksRefreshed = true
+		}
+	}
+	if hooksRefreshed {
+		fmt.Fprintf(os.Stderr, "Refreshed plugin, agents, and git hooks to %s\n", Version)
+	} else {
+		fmt.Fprintf(os.Stderr, "Refreshed plugin and agents to %s\n", Version)
+	}
+}
+
+// resolveGitHooksDir returns the directory where git looks for hooks.
+// Checks core.hooksPath first (set by Husky, lefthook, or user config),
+// falls back to .git/hooks. Returns an error if not inside a git repo.
+func resolveGitHooksDir() (string, error) {
+	// Verify we're in a git repo before touching .git/.
+	if _, err := os.Stat(".git"); err != nil {
+		return "", fmt.Errorf("not a git repository (no .git)")
+	}
+
+	out, err := exec.Command("git", "config", "core.hooksPath").Output()
+	if err == nil {
+		if p := strings.TrimSpace(string(out)); p != "" {
+			return p, nil
+		}
+	}
+	return ".git/hooks", nil
+}
+
+// installGitHooks writes embedded git hooks to the given hooks directory.
+// Each hook is installed only if: (1) no hook exists at the path, or (2) the
+// existing hook contains the hookManaged marker, indicating we own it.
+// User-authored hooks (without the marker) are never overwritten — instead
+// the hook name is returned in the skipped slice so callers can warn.
+func installGitHooks(hooksDir string) (skipped []string, err error) {
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return nil, fmt.Errorf("create hooks dir: %w", err)
+	}
+
+	entries, err := gitHooksFS.ReadDir("githooks")
+	if err != nil {
+		return nil, fmt.Errorf("read embedded githooks: %w", err)
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+
+		data, err := gitHooksFS.ReadFile(filepath.Join("githooks", e.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read embedded %s: %w", e.Name(), err)
+		}
+
+		dest := filepath.Join(hooksDir, e.Name())
+
+		// Check for existing hook we don't own.
+		if existing, err := os.ReadFile(dest); err == nil {
+			if !strings.Contains(string(existing), hookManaged) {
+				skipped = append(skipped, e.Name())
+				continue
+			}
+		}
+
+		if err := os.WriteFile(dest, data, 0755); err != nil {
+			return skipped, fmt.Errorf("write %s: %w", e.Name(), err)
+		}
+	}
+	return skipped, nil
 }
 
 // writeDefaultConfig serializes defaultConfig to the given path.
