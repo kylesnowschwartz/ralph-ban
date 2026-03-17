@@ -140,7 +140,11 @@ describe_changes() {
   rm -f "$tmp_new" "$tmp_old"
 }
 
-# count_active returns the number of items in todo or doing columns.
+# count_active returns the number of non-epic items in todo or doing columns.
+# Epics are organizational containers — they aren't dispatchable, claimable, or
+# implementable. Counting them inflates todo/doing and causes phantom blocks in
+# the stop hook (the orchestrator can't clear an epic by dispatching a worker).
+# Epics close automatically when all children complete.
 count_active() {
   local state
   state=$(read_board)
@@ -150,8 +154,8 @@ count_active() {
   fi
 
   local todo_count doing_count
-  todo_count=$(echo "$state" | jq -r 'select(.status == "todo")' | jq -s 'length')
-  doing_count=$(echo "$state" | jq -r 'select(.status == "doing")' | jq -s 'length')
+  todo_count=$(echo "$state" | jq -r 'select(.status == "todo" and .issue_type != "epic")' | jq -s 'length')
+  doing_count=$(echo "$state" | jq -r 'select(.status == "doing" and .issue_type != "epic")' | jq -s 'length')
   echo "$todo_count $doing_count"
 }
 

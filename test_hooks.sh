@@ -524,9 +524,45 @@ test_stop_guard_guidance_waiting_for_workers() {
   echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
   local out
   out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
-  assert_contains "$out" '"block"' "stop-guard guidance: blocks when workers running"
-  assert_contains "$out" "Phase 2.5" "stop-guard guidance: suggests productive waiting"
-  assert_not_contains "$out" "dispatch or claim" "stop-guard guidance: omits generic ralph loop"
+  # Phase 4.5 now detects agent_state=running and passes through silently
+  # (same as the worker marker). Workers are in-flight — blocking just
+  # produces empty acknowledgments the orchestrator can't act on.
+  assert_not_contains "$out" '"block"' "stop-guard guidance: does not block when workers running"
+  assert_contains "$out" "Workers are running" "stop-guard guidance: shows waiting message for running agents"
+  teardown
+}
+
+test_stop_guard_epic_excluded_from_counts() {
+  setup
+  # An epic in todo should NOT trigger a stop block in autonomous mode.
+  # Epics are organizational containers — they close when children complete,
+  # not when the orchestrator dispatches them.
+  local epic_id
+  epic_id=$(extract_id "$(bl create "My Epic" --type epic)")
+  # Epic stays in todo. No non-epic cards exist.
+  echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  assert_not_contains "$out" '"block"' "stop-guard: epic in todo does not block autonomous mode"
+  teardown
+}
+
+test_stop_guard_epic_with_doing_child() {
+  setup
+  # An epic in todo + a child task in doing with a running agent.
+  # The epic shouldn't add to the count, and the running agent should
+  # trigger Phase 4.5 pass-through.
+  local epic_id child_id
+  epic_id=$(extract_id "$(bl create "My Epic" --type epic)")
+  child_id=$(extract_id "$(bl create "Child Task" --epic "$epic_id")")
+  bl update "$child_id" --status doing >/dev/null
+  bl claim "$child_id" --agent test-worker >/dev/null
+  bl agent-state "$child_id" --state running >/dev/null
+  echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  assert_not_contains "$out" '"block"' "stop-guard: epic+running child does not block"
+  assert_contains "$out" "Workers are running" "stop-guard: running child detected via agent_state"
   teardown
 }
 

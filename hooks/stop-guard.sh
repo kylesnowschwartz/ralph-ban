@@ -92,13 +92,21 @@ fi
 require_bl
 
 # --- Phase 4.5: Worker activity gate ---
-# If the orchestrator has active workers running (marker present and fresh),
-# allow the stop hook to pass through silently. Workers are completing their
-# turns and will re-engage the orchestrator when done. Firing board-state
-# guidance while the orchestrator can't act on it creates noise without value.
+# Detects active workers via TWO signals:
+#   1. Explicit marker file (.workers-active) written by the orchestrator
+#   2. Cards with agent_state=running in the database
+# Either signal is sufficient. The marker is the designed mechanism but the
+# orchestrator sometimes forgets to write it. Checking agent_state as fallback
+# means the hook infers the same thing from board state — defining the error
+# out of existence rather than relying on orchestrator discipline.
+#
+# When workers are active, the orchestrator can't make progress — it's waiting
+# for background agents to return. Firing board-state guidance creates noise
+# without value. Allow the stop hook to pass through silently.
 # Note: this comes AFTER the uncommitted changes gate — a dirty working tree
 # still blocks regardless of whether workers are running.
-if check_worker_marker; then
+_running_agents=$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running")] | length' 2>/dev/null || echo "0")
+if check_worker_marker || [ "$_running_agents" -gt 0 ]; then
   jq -n '{
     systemMessage: "Workers are running. Pausing until they complete."
   }'
@@ -153,10 +161,9 @@ echo "$current_hash" >"$HASH_FILE"
 # --- Phase 7: Block decision + guidance ---
 read todo_count doing_count <<<"$(count_active)"
 
-# Count cards with agent_state=running (explicit active work, not inferred from status).
-# This is the primary signal for batch mode. A card in doing without a running agent
-# may be orphaned — the agent should claim it or investigate rather than assuming work continues.
-running_count=$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running")] | length' 2>/dev/null || echo "0")
+# Reuse the running-agent count from Phase 4.5 if we got here (it was 0 or the
+# check was skipped). Re-query only if the variable isn't set (defensive).
+running_count="${_running_agents:-$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running")] | length' 2>/dev/null || echo "0")}"
 
 # Batch:      block on running agents (explicit state) or doing cards (catch orphans).
 # Autonomous: block on todo + doing until the board drains.
@@ -170,14 +177,14 @@ if [ "$should_block" = "yes" ]; then
   # Identify the concrete next action for the agent
   next_action=""
 
-  # Check for doing cards with no running agent (agent_state not running).
+  # Check for non-epic doing cards with no running agent (agent_state not running).
   # These are orphaned: in doing but the agent isn't explicitly active.
-  unclaimed_doing=$("$BL" list --json 2>/dev/null | jq -r 'select(.status == "doing" and (.agent_state == null or .agent_state == "" or .agent_state == "idle" or .agent_state == "done" or .agent_state == "dead")) | "\(.id): \(.title)"' 2>/dev/null | head -1 || true)
+  unclaimed_doing=$("$BL" list --json 2>/dev/null | jq -r 'select(.status == "doing" and .issue_type != "epic" and (.agent_state == null or .agent_state == "" or .agent_state == "idle" or .agent_state == "done" or .agent_state == "dead")) | "\(.id): \(.title)"' 2>/dev/null | head -1 || true)
   if [ -n "$unclaimed_doing" ]; then
     next_action="$unclaimed_doing is in doing with no active agent. Claim it or spawn a worker."
   elif [ "$stop_mode" = "autonomous" ]; then
-    # Suggest next todo card when no orphaned doing work
-    next_card=$("$BL" ready --json 2>/dev/null | jq -r 'select(.status == "todo") | "\(.id) — \(.title)"' 2>/dev/null | head -1 || true)
+    # Suggest next dispatchable todo card (exclude epics — they close when children complete)
+    next_card=$("$BL" ready --json 2>/dev/null | jq -r 'select(.status == "todo" and .issue_type != "epic") | "\(.id) — \(.title)"' 2>/dev/null | head -1 || true)
     if [ -n "$next_card" ]; then
       next_action="Dispatch now: $next_card"
     fi

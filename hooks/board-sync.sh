@@ -56,8 +56,9 @@ if [ -z "${CLAUDE_TEAM_NAME:-}" ]; then
     true
   else
     # bl ready --unclaimed respects dependencies and only returns unblocked, unclaimed items.
+    # Exclude epics — they're organizational containers, not dispatchable work.
     unclaimed_todo=$("$BL" ready --unclaimed --json 2>/dev/null | jq -r '
-      select(.status == "todo")
+      select(.status == "todo" and .issue_type != "epic")
       | "\(.id): \(.title)"
     ' 2>/dev/null || true)
 
