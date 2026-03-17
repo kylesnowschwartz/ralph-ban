@@ -74,6 +74,13 @@ func runInit(args []string) {
 		os.Exit(1)
 	}
 
+	// --- Step 0b: Ensure .gitignore has correct entries ---
+	// Symlinked directories in worktrees must be ignored WITHOUT trailing slashes.
+	// Git's "pattern/" syntax only matches directories, not symlinks-to-directories.
+	// The post-checkout hook creates symlinks for these in child worktrees; with
+	// trailing slashes, git status shows them as untracked and the stop hook blocks.
+	giFixed, giAdded := ensureGitignore()
+
 	// --- Step 1: Create .ralph-ban/ config directory ---
 	if err := os.MkdirAll(ralphBanDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create %s: %v\n", ralphBanDir, err)
@@ -192,6 +199,12 @@ func runInit(args []string) {
 	if gitHooksInstalled {
 		fmt.Printf("  %-24s  %s\n", ".git/hooks/", "post-checkout hook for worktree symlinks")
 	}
+	if giFixed > 0 {
+		fmt.Printf("  %-24s  fixed %d trailing-slash patterns (symlink compatibility)\n", ".gitignore", giFixed)
+	}
+	if giAdded > 0 {
+		fmt.Printf("  %-24s  added %d missing entries\n", ".gitignore", giAdded)
+	}
 
 	fmt.Println()
 	fmt.Println("Run 'ralph-ban' to open the board.")
@@ -301,6 +314,12 @@ func ensurePlugin() {
 		return // already current
 	}
 
+	// Fix .gitignore before anything else — trailing-slash patterns don't
+	// match symlinks, which is what worktrees create for these paths.
+	if fixed, added := ensureGitignore(); fixed > 0 || added > 0 {
+		fmt.Fprintf(os.Stderr, "Fixed .gitignore: %d trailing-slash patterns, %d new entries\n", fixed, added)
+	}
+
 	// Re-extract plugin and install agents. Errors are non-fatal — the session
 	// can still work with stale agents, and init will fix it later.
 	if err := extractPlugin(pluginDir); err != nil {
@@ -324,6 +343,72 @@ func ensurePlugin() {
 	} else {
 		fmt.Fprintf(os.Stderr, "Refreshed plugin and agents to %s\n", Version)
 	}
+}
+
+// gitignoreEntries lists paths that ralph-ban needs ignored. No trailing
+// slashes — git's "pattern/" syntax only matches directories, not
+// symlinks-to-directories. The post-checkout hook creates symlinks for
+// these in child worktrees, so trailing slashes cause git status to show
+// them as untracked.
+var gitignoreEntries = []string{
+	".ralph-ban",
+	".beads-lite",
+	".agent-history",
+	".cloned-sources",
+	".claude/agents",
+}
+
+// ensureGitignore appends missing entries to .gitignore, creating the file
+// if needed. Also fixes legacy entries that use trailing slashes.
+// Returns (fixed, added) counts so callers can report what changed.
+func ensureGitignore() (fixed, added int) {
+	const path = ".gitignore"
+
+	existing, _ := os.ReadFile(path)
+	lines := strings.Split(string(existing), "\n")
+
+	// Build a set of existing patterns (trimmed).
+	have := make(map[string]bool, len(lines))
+	for _, l := range lines {
+		have[strings.TrimSpace(l)] = true
+	}
+
+	// Fix trailing-slash variants: if ".foo/" is present but ".foo" is not,
+	// replace the slash version so the pattern covers symlinks too.
+	for i, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		for _, entry := range gitignoreEntries {
+			if trimmed == entry+"/" && !have[entry] {
+				lines[i] = strings.Replace(l, entry+"/", entry, 1)
+				have[entry] = true
+				fixed++
+			}
+		}
+	}
+
+	// Append any entries that are completely missing.
+	var missing []string
+	for _, entry := range gitignoreEntries {
+		if !have[entry] && !have[entry+"/"] {
+			missing = append(missing, entry)
+		}
+	}
+	added = len(missing)
+
+	if added == 0 && fixed == 0 {
+		return
+	}
+
+	content := strings.Join(lines, "\n")
+	if added > 0 {
+		if len(content) > 0 && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		content += strings.Join(missing, "\n") + "\n"
+	}
+
+	os.WriteFile(path, []byte(content), 0644)
+	return
 }
 
 // resolveGitHooksDir returns the directory where git looks for hooks.

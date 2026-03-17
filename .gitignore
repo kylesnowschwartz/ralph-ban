@@ -1,8 +1,10 @@
 go.work
 go.work.sum
-.agent-history/
-.ralph-ban/
-.cloned-sources/
-.beads-lite/
-.claude/agents/
+# No trailing slash — in worktrees these are symlinks, and git's
+# pattern/ syntax only matches directories, not symlinks-to-directories.
+.agent-history
+.ralph-ban
+.cloned-sources
+.beads-lite
+.claude/agents
 ralph-ban
