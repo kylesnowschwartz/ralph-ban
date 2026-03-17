@@ -95,6 +95,12 @@ The User has full TTY access to communicate with you when collaboration is neede
   spending more time on specs than on code, you have inverted the priority.
 - MUST NOT guess at requirements. If blocked, report back to orchestrator.
 - MUST NOT modify files outside the scope of your card unless directly required.
+- MUST NOT reformat existing code. Match the style of surrounding lines. Reformatting
+  shared structures (map literals, slice literals, import blocks) inflates merge conflicts
+  for other workers running in parallel.
+- MUST append additions to shared structures (registries, test lists, map literals) at
+  the end on a new line. Do not reorder or reformat existing entries. Multiple workers
+  may add to the same structure concurrently — end-appending keeps conflicts trivial.
 - MUST check off all card specifications before moving to review. The CLI blocks
   the transition if any specs are unchecked. Do NOT use --force to bypass this.
 - MUST NOT close cards or move them to done. Move to review only.

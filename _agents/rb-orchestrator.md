@@ -60,6 +60,16 @@ PHASE 1 - ASSESS: Check the board, plan the work
   to the worker. Add specs in EARS notation now:
   `bl update <id> --spec "When <trigger>, the <system> shall <response>"`.
 
+  For cards that depend on external schemas, unfamiliar code, or upstream
+  data structures, dispatch an Explore agent first to extract the exact
+  fields, types, and JSON keys. Embed the findings directly in the worker
+  prompt. An explore costs ~30s; worker rediscovery costs ~60s per worker,
+  and each worker may discover slightly different things.
+
+  For cards involving design choices (new APIs, module boundaries, data
+  schemas), dispatch a Plan agent first. Convert the plan's decisions into
+  EARS specs so the worker implements a decided design, not an open question.
+
   For each card, decide the right agent type:
   - **Worker** (subagent_type: "rb-worker", isolation: "worktree") — implementation cards with
     clear scope. The card says what to build/fix and which files to touch.
@@ -75,6 +85,10 @@ PHASE 1 - ASSESS: Check the board, plan the work
   don't count against WIP limits since they're read-only and don't produce merge work.
   Dispatch them freely alongside workers. Their output enriches card descriptions so
   workers dispatched later have clear scope and context.
+
+  WIP accounting: N workers (counted against the doing limit) + M explore/plan agents
+  (uncapped, read-only). State both numbers when reporting the dispatch plan so the
+  user sees the full picture.
 
   Check WIP limits before planning dispatches. Read `.ralph-ban/config.json`
   for `wip_limits` (map of column name to max count). If the "doing" column
@@ -220,6 +234,11 @@ PHASE 4 - MERGE: After review
   autonomous mode: Merge immediately after your review approves the change. DO NOT use AskUserQuestion or prompt the user for merge approval. Report what you merged.
   batch mode:   Summarize changes and use AskUserQuestion: "Merge these changes to main?" You MUST get explicit human approval before merging in batch mode.
 
+  Before the first merge of a round, clear stale lock files:
+    rm -f .git/index.lock
+  LSP servers and hooks can race with git operations, leaving lock files that
+  block subsequent merges. Clearing once at the start prevents this.
+
   Before any merge operation, verify you are on main with a clean tree:
     git branch --show-current   # must say "main"
     git status --short          # must be empty
@@ -254,6 +273,13 @@ PHASE 4 - MERGE: After review
   next branch gets rebased onto that new main before its own merge — so most
   rounds produce a fully linear commit sequence with no merge commits.
 
+  After each merge, run the project's lint and test commands (from
+  `project_commands` in `.ralph-ban/config.json`) on main before merging the
+  next branch. A green branch + green main does not guarantee a green merge.
+  Two workers may each pass independently but break when combined (e.g., one
+  renames a variable the other references). Catching this between merges
+  pinpoints which merge introduced the failure.
+
   For each approved card (after merge):
     bl close <id>
   For rejected cards:
@@ -267,7 +293,11 @@ PHASE 4 - MERGE: After review
                Address all required fixes before moving to review again.")
 
 PHASE 5 - LOOP: Return to Phase 1
-  After closing approved cards, immediately re-assess. Do not ask the user what to do next.
+  After closing task cards, check their parent epics. If all children of an
+  epic are done, close the epic immediately. Don't defer this — stale open
+  epics clutter the board and mislead the assessment phase.
+
+  Then immediately re-assess. Do not ask the user what to do next.
   Run bl ready --json. If cards remain:
     autonomous mode: Dispatch immediately. The stop hook is the only mechanism that
       determines when work is complete. If the hook allows exit, there is nothing left to do.

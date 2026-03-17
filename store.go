@@ -99,7 +99,7 @@ func persistAddDep(store *beadslite.Store, issueID, dependsOnID string) tea.Cmd 
 // This calls CloseIssue which sets status=done, clears assigned_to, and sets closed_at.
 func persistClose(store *beadslite.Store, id string, resolution beadslite.Resolution) tea.Cmd {
 	return func() tea.Msg {
-		if err := store.CloseIssue(id, resolution); err != nil {
+		if _, err := store.CloseIssue(id, resolution); err != nil {
 			return errMsg{err}
 		}
 		return nil
