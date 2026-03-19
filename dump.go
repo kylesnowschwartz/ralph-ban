@@ -150,3 +150,42 @@ func dumpZoomView(store *beadslite.Store, cardID string, width, height int, w io
 
 	return json.NewEncoder(w).Encode(out)
 }
+
+// dumpFormView renders the edit form for a specific card and writes
+// JSON with the rendered view to w.
+func dumpFormView(store *beadslite.Store, cardID string, width, height int, w io.Writer) error {
+	b, err := newBoardForExport(store, width, height)
+	if err != nil {
+		return err
+	}
+
+	var issue *beadslite.Issue
+	var colIdx columnIndex
+	for col := columnIndex(0); col < numColumns; col++ {
+		for _, item := range b.cols[col].list.Items() {
+			if c, ok := item.(card); ok && c.issue.ID == cardID {
+				issue = c.issue
+				colIdx = col
+				break
+			}
+		}
+		if issue != nil {
+			break
+		}
+	}
+	if issue == nil {
+		return fmt.Errorf("card %q not found", cardID)
+	}
+
+	f := editForm(issue, colIdx, false)
+	f.width = width
+	f.height = height
+
+	out := dumpOutput{
+		View:   f.View(),
+		Width:  width,
+		Height: height,
+	}
+
+	return json.NewEncoder(w).Encode(out)
+}

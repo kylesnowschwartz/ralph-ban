@@ -326,9 +326,7 @@ func (f form) View() string {
 		header = "Edit Card"
 	}
 
-	// Width budget, computed outside-in. Each layer queries the style above
-	// it for frame size so changes to borders/padding cascade automatically.
-	const outerMargin = 8 // centering gap on each side
+	const outerMargin = 8
 	panelStyle := stylePanelBorder()
 	descBorderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -337,69 +335,43 @@ func (f form) View() string {
 
 	panelWidth := max(f.width-outerMargin, 50)
 	contentWidth := max(panelWidth-panelStyle.GetHorizontalFrameSize(), 40)
-	descWidth := max(contentWidth-descBorderStyle.GetHorizontalFrameSize(), 38)
-
-	labelWidth := label.GetWidth() + 1 // +1 for the space between label and input
-	f.title.SetWidth(max(contentWidth-labelWidth, 20))
-	f.description.SetWidth(descWidth)
-
-	// Textarea height: scale to available vertical space.
 	panelVFrame := panelStyle.GetVerticalFrameSize()
 	descBorderVFrame := descBorderStyle.GetVerticalFrameSize()
-	fixedRows := 10 // header, blank lines, pri/type/specs/hint rows
-	availHeight := f.height - outerMargin - panelVFrame - descBorderVFrame - fixedRows
-	f.description.SetHeight(max(availHeight/2, 4))
 
-	style := panelStyle.Width(panelWidth)
 	active := lipgloss.NewStyle().Foreground(colorAccent)
 	faint := styleFaint()
 
-	// Title row
-	titleLabel := label.Render("Title:")
-	if f.focus == fieldTitle {
-		titleLabel = active.Width(label.GetWidth()).Render("Title:")
-	}
-	titleRow := titleLabel + " " + f.title.View()
+	landscape := f.width >= 2*f.height && f.width >= 100
 
-	// Description row — textarea wrapped in a thin border for visual containment.
-	descLabel := label.Render("Desc:")
-	if f.focus == fieldDescription {
-		descLabel = active.Width(label.GetWidth()).Render("Desc:")
+	if landscape {
+		return f.viewLandscape(header, panelStyle, descBorderStyle, label,
+			panelWidth, contentWidth, panelVFrame, descBorderVFrame, active, faint)
 	}
-	descRow := descLabel + "\n" + descBorderStyle.Render(f.description.View())
+	return f.viewPortrait(header, panelStyle, descBorderStyle, label,
+		panelWidth, contentWidth, panelVFrame, descBorderVFrame, active, faint)
+}
 
-	// Priority row
-	priLabel := label.Render("Priority:")
-	priValue := priorityLabels[f.priority]
-	if f.focus == fieldPriority {
-		priLabel = active.Width(label.GetWidth()).Render("Priority:")
-		priValue = fmt.Sprintf("%s %s %s", iconSelectorLeft, priValue, iconSelectorRight)
-	}
-	priRow := priLabel + " " + priValue
+// viewPortrait renders the single-column form layout for narrow/tall terminals.
+func (f form) viewPortrait(
+	header string, panelStyle, descBorderStyle, label lipgloss.Style,
+	panelWidth, contentWidth, panelVFrame, descBorderVFrame int,
+	active, faint lipgloss.Style,
+) string {
+	descWidth := max(contentWidth-descBorderStyle.GetHorizontalFrameSize(), 38)
+	labelWidth := label.GetWidth() + 1
+	f.title.SetWidth(max(contentWidth-labelWidth, 20))
+	f.description.SetWidth(descWidth)
 
-	// Type row
-	typeLabel := label.Render("Type:")
-	typeValue := string(typeOptions[f.typeIndex])
-	if f.focus == fieldType {
-		typeLabel = active.Width(label.GetWidth()).Render("Type:")
-		typeValue = fmt.Sprintf("%s %s %s", iconSelectorLeft, typeValue, iconSelectorRight)
-	}
-	typeRow := typeLabel + " " + typeValue
+	fixedRows := 10
+	availHeight := f.height - 8 - panelVFrame - descBorderVFrame - fixedRows
+	f.description.SetHeight(max(availHeight/2, 4))
 
-	// Specs section
+	titleRow := f.renderTitleRow(label, active)
+	descRow := f.renderDescLabel(label, active) + "\n" + descBorderStyle.Render(f.description.View())
+	priRow := f.renderPriorityRow(label, active)
+	typeRow := f.renderTypeRow(label, active)
 	specsView := f.viewSpecs(label, active, faint)
-
-	// Footer hint adapts to current field.
-	hint := "↑↓/tab: navigate  enter: save  esc: cancel"
-	if f.focus == fieldDescription {
-		hint = "tab: next field  esc: cancel"
-	} else if f.focus == fieldSpecs {
-		if f.addingSpec {
-			hint = "enter: add  esc: cancel"
-		} else {
-			hint = "space: toggle  a: add  e: edit  d: remove  tab: next  enter: save"
-		}
-	}
+	hint := f.renderHint(faint)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		styleBold().Render(header),
@@ -410,15 +382,132 @@ func (f form) View() string {
 		typeRow,
 		specsView,
 		"",
-		faint.Render(hint),
+		hint,
 	)
 
-	rendered := style.Render(content)
-
+	rendered := panelStyle.Width(panelWidth).Render(content)
 	return lipgloss.Place(f.width, f.height,
 		lipgloss.Center, lipgloss.Center,
 		rendered,
 	)
+}
+
+// viewLandscape renders a two-column form: metadata on the left, description
+// on the right. The description textarea gets the full panel height, giving
+// long descriptions room to breathe. Tab order is unchanged: title → desc →
+// priority → type → specs.
+func (f form) viewLandscape(
+	header string, panelStyle, descBorderStyle, label lipgloss.Style,
+	panelWidth, contentWidth, panelVFrame, descBorderVFrame int,
+	active, faint lipgloss.Style,
+) string {
+	// Left/right column widths. Left gets 45% for metadata, right gets
+	// the remainder minus a 3-char divider.
+	dividerWidth := 3
+	leftWidth := contentWidth * 45 / 100
+	rightWidth := contentWidth - leftWidth - dividerWidth
+
+	labelWidth := label.GetWidth() + 1
+	f.title.SetWidth(max(leftWidth-labelWidth, 20))
+
+	// Description textarea fills the full right column height.
+	descInnerWidth := max(rightWidth-descBorderStyle.GetHorizontalFrameSize(), 30)
+	f.description.SetWidth(descInnerWidth)
+	descAvailHeight := f.height - 8 - panelVFrame - descBorderVFrame - 4 // header + borders + margins
+	f.description.SetHeight(max(descAvailHeight, 6))
+
+	titleRow := f.renderTitleRow(label, active)
+	priRow := f.renderPriorityRow(label, active)
+	typeRow := f.renderTypeRow(label, active)
+	specsView := f.viewSpecs(label, active, faint)
+	hint := f.renderHint(faint)
+
+	// Left column: title, metadata, specs, hint.
+	left := lipgloss.JoinVertical(lipgloss.Left,
+		styleBold().Render(header),
+		"",
+		titleRow,
+		"",
+		priRow,
+		typeRow,
+		specsView,
+		"",
+		hint,
+	)
+	left = lipgloss.NewStyle().Width(leftWidth).Render(left)
+
+	// Right column: description label + bordered textarea.
+	descLabel := f.renderDescLabel(label, active)
+	descContent := descLabel + "\n" + descBorderStyle.Width(rightWidth).Render(f.description.View())
+	right := lipgloss.NewStyle().Width(rightWidth).Render(descContent)
+
+	// Divider sized to the taller column.
+	maxHeight := max(lipgloss.Height(left), lipgloss.Height(right))
+	divLines := make([]string, maxHeight)
+	divStyle := styleFaint()
+	for i := range divLines {
+		divLines[i] = divStyle.Render(" │ ")
+	}
+	divider := strings.Join(divLines, "\n")
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
+	rendered := panelStyle.Width(panelWidth).Render(content)
+	return lipgloss.Place(f.width, f.height,
+		lipgloss.Center, lipgloss.Center,
+		rendered,
+	)
+}
+
+// Field rendering helpers — shared between portrait and landscape layouts.
+
+func (f form) renderTitleRow(label, active lipgloss.Style) string {
+	titleLabel := label.Render("Title:")
+	if f.focus == fieldTitle {
+		titleLabel = active.Width(label.GetWidth()).Render("Title:")
+	}
+	return titleLabel + " " + f.title.View()
+}
+
+func (f form) renderDescLabel(label, active lipgloss.Style) string {
+	descLabel := label.Render("Desc:")
+	if f.focus == fieldDescription {
+		descLabel = active.Width(label.GetWidth()).Render("Desc:")
+	}
+	return descLabel
+}
+
+func (f form) renderPriorityRow(label, active lipgloss.Style) string {
+	priLabel := label.Render("Priority:")
+	priValue := priorityLabels[f.priority]
+	if f.focus == fieldPriority {
+		priLabel = active.Width(label.GetWidth()).Render("Priority:")
+		priValue = fmt.Sprintf("%s %s %s", iconSelectorLeft, priValue, iconSelectorRight)
+	}
+	return priLabel + " " + priValue
+}
+
+func (f form) renderTypeRow(label, active lipgloss.Style) string {
+	typeLabel := label.Render("Type:")
+	typeValue := string(typeOptions[f.typeIndex])
+	if f.focus == fieldType {
+		typeLabel = active.Width(label.GetWidth()).Render("Type:")
+		typeValue = fmt.Sprintf("%s %s %s", iconSelectorLeft, typeValue, iconSelectorRight)
+	}
+	return typeLabel + " " + typeValue
+}
+
+func (f form) renderHint(faint lipgloss.Style) string {
+	hint := "↑↓/tab: navigate  enter: save  esc: cancel"
+	if f.focus == fieldDescription {
+		hint = "tab: next field  esc: cancel"
+	} else if f.focus == fieldSpecs {
+		if f.addingSpec {
+			hint = "enter: add  esc: cancel"
+		} else {
+			hint = "space: toggle  a: add  e: edit  d: remove  tab: next  enter: save"
+		}
+	}
+	return faint.Render(hint)
 }
 
 // viewSpecs renders the specifications section of the form.
