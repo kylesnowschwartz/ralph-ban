@@ -81,9 +81,9 @@ type board struct {
 	// spec-gate is a beads-lite concern, not a ralph-ban board concern.
 	blConfig beadslite.Config
 
-	// doneReversed is true when the Done column is sorted newest-first.
-	// Toggled by the SortToggle keybinding while focused on the Done column.
-	// Not persisted — resets each session.
+	// doneReversed sorts the Done column newest-first when true.
+	// Defaults to true (recently completed at top). Toggled by the
+	// SortToggle keybinding while focused on the Done column.
 	doneReversed bool
 
 	// isDark is true when the terminal has a dark background.
@@ -118,13 +118,14 @@ func newBoard(store *beadslite.Store) *board {
 	si.CharLimit = 80
 
 	b := &board{
-		store:       store,
-		cols:        cols,
-		help:        h,
-		searchInput: si,
-		wip:         wip,
-		blConfig:    blCfg,
-		isDark:      true, // safe default; overridden by BackgroundColorMsg
+		store:        store,
+		cols:         cols,
+		help:         h,
+		searchInput:  si,
+		wip:          wip,
+		blConfig:     blCfg,
+		isDark:       true, // safe default; overridden by BackgroundColorMsg
+		doneReversed: true, // newest-first by default
 	}
 	b.cols[b.focused].Focus()
 	return b

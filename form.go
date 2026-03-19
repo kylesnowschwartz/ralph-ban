@@ -120,6 +120,7 @@ func editForm(issue *beadslite.Issue, colIdx columnIndex, isDark bool) form {
 
 	ta := newTextarea(isDark)
 	ta.SetValue(issue.Description)
+	ta.MoveToBegin() // SetValue leaves cursor at end; start at top
 
 	typeIdx := 0
 	for i, t := range typeOptions {
@@ -413,7 +414,10 @@ func (f form) viewLandscape(
 	// Description textarea fills the full right column height.
 	descInnerWidth := max(rightWidth-descBorderStyle.GetHorizontalFrameSize(), 30)
 	f.description.SetWidth(descInnerWidth)
-	descAvailHeight := f.height - 8 - panelVFrame - descBorderVFrame - 4 // header + borders + margins
+	// Description gets the full right column height: panel inner height
+	// minus the "Desc:" label line and the border around the textarea.
+	panelInnerHeight := f.height - 8 - panelVFrame // 8 = outerMargin for centering
+	descAvailHeight := panelInnerHeight - 1 - descBorderVFrame
 	f.description.SetHeight(max(descAvailHeight, 6))
 
 	titleRow := f.renderTitleRow(label, active)
