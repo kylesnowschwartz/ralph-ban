@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/list"
@@ -1653,13 +1654,39 @@ func TestZoomOtherKey_Dismisses(t *testing.T) {
 		t.Fatalf("view = %d after openZoom, want viewZoom (%d)", b.view, viewZoom)
 	}
 
-	// Press any key that isn't e — should dismiss.
+	// Press esc — should dismiss.
 	b.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if b.view != viewBoard {
 		t.Errorf("view = %d after esc in zoom, want viewBoard (%d)", b.view, viewBoard)
 	}
 	if b.zoom != nil {
-		t.Error("zoom should be nil after non-edit key")
+		t.Error("zoom should be nil after esc")
+	}
+}
+
+func TestZoomScrollKey_DoesNotDismiss(t *testing.T) {
+	b := newTestBoard(t)
+
+	issue := makeIssue("bl-zoom-scroll", "Zoom Scroll", beadslite.StatusTodo)
+	issue.Description = strings.Repeat("line\n", 100) // enough to overflow
+	b.cols[b.focused].Blur()
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+	b.cols[colTodo].SetItems([]list.Item{card{issue: issue}})
+
+	b.openZoom()
+	if b.view != viewZoom {
+		t.Fatalf("view = %d after openZoom, want viewZoom (%d)", b.view, viewZoom)
+	}
+
+	// Press j — should scroll, not dismiss.
+	b.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+
+	if b.view != viewZoom {
+		t.Errorf("view = %d after j in zoom, want viewZoom (%d)", b.view, viewZoom)
+	}
+	if b.zoom == nil {
+		t.Error("zoom should still be active after scroll key")
 	}
 }

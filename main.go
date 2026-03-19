@@ -69,8 +69,9 @@ Run 'ralph-ban <command> --help' for all flags.
 
 	// Default: launch TUI board
 	dump := flag.Bool("dump", false, "render one frame as JSON and exit")
-	width := flag.Int("width", 120, "terminal width for --dump")
-	height := flag.Int("height", 40, "terminal height for --dump")
+	dumpZoom := flag.String("dump-zoom", "", "render zoom overlay for card ID and exit")
+	width := flag.Int("width", 120, "terminal width for --dump/--dump-zoom")
+	height := flag.Int("height", 40, "terminal height for --dump/--dump-zoom")
 	flag.Parse()
 
 	dbPath := findDB()
@@ -85,6 +86,14 @@ Run 'ralph-ban <command> --help' for all flags.
 	if *dump {
 		if err := dumpBoard(store, *width, *height, os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "dump failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *dumpZoom != "" {
+		if err := dumpZoomView(store, *dumpZoom, *width, *height, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "dump-zoom failed: %v\n", err)
 			os.Exit(1)
 		}
 		return

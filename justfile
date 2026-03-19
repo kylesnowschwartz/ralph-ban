@@ -54,6 +54,10 @@ qa-dump-board: build
 qa-dump-view width="120" height="40": build
     ./{{ bin }} --dump --width {{ width }} --height {{ height }} | jq -r '.view'
 
+# Dump zoom overlay for a card (e.g. just qa-dump-zoom bl-et44 180 20)
+qa-dump-zoom card width="180" height="20": build
+    ./{{ bin }} --dump-zoom {{ card }} --width {{ width }} --height {{ height }} | jq -r '.view'
+
 # Launch the interactive TUI
 run: build
     ./{{ bin }}

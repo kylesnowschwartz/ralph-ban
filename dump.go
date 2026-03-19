@@ -108,3 +108,45 @@ func dumpBoard(store *beadslite.Store, width, height int, w io.Writer) error {
 
 	return json.NewEncoder(w).Encode(out)
 }
+
+// dumpZoomView renders the zoom overlay for a specific card and writes
+// JSON with the rendered view to w. Finds the card by ID across all columns,
+// focuses it, opens zoom, and renders one frame.
+func dumpZoomView(store *beadslite.Store, cardID string, width, height int, w io.Writer) error {
+	b, err := newBoardForExport(store, width, height)
+	if err != nil {
+		return err
+	}
+
+	// Find and focus the card.
+	found := false
+	for col := columnIndex(0); col < numColumns; col++ {
+		for idx, item := range b.cols[col].list.Items() {
+			if c, ok := item.(card); ok && c.issue.ID == cardID {
+				b.cols[b.focused].Blur()
+				b.focused = col
+				b.cols[col].Focus()
+				b.cols[col].list.Select(idx)
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("card %q not found", cardID)
+	}
+
+	b.openZoom()
+
+	out := dumpOutput{
+		View:   b.zoomView(),
+		Width:  width,
+		Height: height,
+		Focus:  int(b.focused),
+	}
+
+	return json.NewEncoder(w).Encode(out)
+}

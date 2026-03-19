@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -25,7 +26,7 @@ const (
 	viewSearch                      // cross-column search mode
 	viewResolution                  // resolution picker before closing a card
 	viewDepLink                     // dep-link picker: link focused card to a blocker
-	viewZoom                        // ephemeral peek overlay; e to edit, any other key dismisses
+	viewZoom                        // scrollable peek overlay; e to edit, j/k to scroll, esc dismisses
 )
 
 // board is the root tea.Model for the kanban TUI.
@@ -159,6 +160,9 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.depLinker.width = msg.Width
 			b.depLinker.height = msg.Height
 		}
+		if b.zoom != nil {
+			b.syncZoomViewport()
+		}
 		b.updatePan()
 		b.resizeColumns()
 		return b, nil
@@ -193,6 +197,12 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case viewZoom:
 		if msg, ok := msg.(tea.KeyMsg); ok {
 			return b.handleZoomKey(msg)
+		}
+		// Forward non-key messages (mouse wheel, etc.) to the viewport.
+		if b.zoom != nil {
+			vp, cmd := b.zoom.vp.Update(msg)
+			b.zoom.vp = vp
+			return b, cmd
 		}
 		return b, nil
 	case viewForm:
@@ -1499,35 +1509,82 @@ type zoomState struct {
 	colIdx    columnIndex
 	blockedBy []depEntry
 	blocks    []depEntry
+	vp        viewport.Model
 }
 
-// openZoom captures the focused card and its resolved dependencies, then
-// enters viewZoom. Does nothing if no card is selected. Unlike openDetail,
-// openZoom does not mutate navigation state — it is a transient peek.
-func (b *board) openZoom() {
-	cd, ok := b.cols[b.focused].SelectedCard()
-	if !ok {
-		return
-	}
-	b.zoom = &zoomState{
-		issue:     cd.issue,
-		colIdx:    b.focused,
-		blockedBy: b.resolveBlockedBy(cd.issue.ID),
-		blocks:    b.resolveBlocks(cd.issue.ID),
-	}
-	b.view = viewZoom
+// zoomKeyMap returns viewport keybindings with board-conflicting keys removed.
+// The default viewport keymap binds d, b, f, u which overlap with board keys
+// (delete, blocked-by, filter, undo). Strip them so muscle memory stays clean.
+func zoomKeyMap() viewport.KeyMap {
+	km := viewport.DefaultKeyMap()
+	km.PageDown = key.NewBinding(key.WithKeys("pgdown", " "))
+	km.PageUp = key.NewBinding(key.WithKeys("pgup"))
+	km.HalfPageDown = key.NewBinding(key.WithKeys("ctrl+d"))
+	km.HalfPageUp = key.NewBinding(key.WithKeys("ctrl+u"))
+	km.Left = key.NewBinding(key.WithDisabled())
+	km.Right = key.NewBinding(key.WithDisabled())
+	return km
 }
 
-// zoomView renders the peek overlay. The column headers remain visible at the
-// top of the screen — the zoom panel is placed below them, occupying most of
-// the remaining height. Any key press dismisses it (handled in Update).
-func (b *board) zoomView() string {
-	// Render the normal board view as the background so column headers stay visible.
-	// Temporarily switch view to viewBoard so boardView() renders columns, not zoom.
-	b.view = viewBoard
-	boardBg := b.viewContent()
-	b.view = viewZoom
+// zoomContent builds the formatted card content for the viewport.
+// In landscape terminals (wide and short), metadata and description render
+// side by side. Otherwise they stack vertically as before.
+func (b *board) zoomContent(innerWidth int) string {
+	i := b.zoom.issue
+	faintStyle := styleFaint()
 
+	// Decide layout before building fields so the metadata column
+	// is built at the correct target width from the start. Wrapping
+	// already-composed lines after the fact breaks mid-word.
+	landscape := b.termWidth >= 2*b.termHeight && b.termWidth >= 100 && i.Description != ""
+
+	dividerWidth := 3
+	var metaWidth int
+	if landscape {
+		metaWidth = innerWidth * 2 / 5
+	} else {
+		metaWidth = innerWidth
+	}
+
+	fields := b.zoomMetadata(metaWidth)
+
+	if landscape {
+		rightWidth := innerWidth - metaWidth - dividerWidth
+
+		// Build divider as one │ per line. The old strings.Repeat("\n│", n)
+		// approach produced a styled first line with inconsistent width,
+		// causing JoinHorizontal to pad every row by the difference.
+		metaHeight := lipgloss.Height(fields)
+		divLines := make([]string, metaHeight)
+		for i := range divLines {
+			divLines[i] = faintStyle.Render(" │ ")
+		}
+		divider := strings.Join(divLines, "\n")
+		right := lipgloss.NewStyle().Width(rightWidth).Render(i.Description)
+
+		return lipgloss.JoinHorizontal(lipgloss.Top, fields, divider, right)
+	}
+
+	// Single-column: description below metadata.
+	if i.Description != "" {
+		divider := faintStyle.Render(strings.Repeat("─", innerWidth))
+		desc := lipgloss.NewStyle().Width(innerWidth).Render(i.Description)
+		fields = lipgloss.JoinVertical(lipgloss.Left,
+			fields,
+			"",
+			divider,
+			"",
+			desc,
+		)
+	}
+
+	return fields
+}
+
+// zoomMetadata builds the left-column content (title, fields, deps, specs,
+// help text) constrained to the given width. Building at the target width
+// from the start prevents lipgloss from re-wrapping composed lines mid-word.
+func (b *board) zoomMetadata(width int) string {
 	i := b.zoom.issue
 
 	labelStyle := styleBold().Width(10)
@@ -1535,6 +1592,7 @@ func (b *board) zoomView() string {
 
 	title := lipgloss.NewStyle().
 		Bold(true).
+		Width(width).
 		Foreground(colorZoom).
 		Render(i.Title)
 
@@ -1554,7 +1612,6 @@ func (b *board) zoomView() string {
 		)
 	}
 
-	// Relative timestamps for created and updated.
 	fields = lipgloss.JoinVertical(lipgloss.Left,
 		fields,
 		labelStyle.Render("Created")+"  "+relativeTime(i.CreatedAt),
@@ -1578,7 +1635,6 @@ func (b *board) zoomView() string {
 		)
 	}
 
-	// Specifications section
 	if len(i.Specifications) > 0 {
 		checked, total := i.SpecProgress()
 		specHeader := faintStyle.Render(fmt.Sprintf("Specifications (%d/%d)", checked, total))
@@ -1601,49 +1657,108 @@ func (b *board) zoomView() string {
 	fields = lipgloss.JoinVertical(lipgloss.Left,
 		fields,
 		"",
-		faintStyle.Render("e: edit  any key: dismiss"),
+		faintStyle.Render("e: edit  j/k: scroll  esc: close"),
 	)
 
-	// Use most of the terminal width so specs and descriptions have room to breathe.
+	return fields
+}
+
+// syncZoomViewport creates or recreates the viewport with correct dimensions
+// and content. Called when opening zoom and on terminal resize.
+func (b *board) syncZoomViewport() {
 	panelWidth := b.termWidth - 8
 	if panelWidth < 40 {
 		panelWidth = 40
 	}
+	innerWidth := panelWidth - 6 // border (2) + padding (2*2)
 
-	// Inner content width: subtract border (2) + padding (2*2).
-	innerWidth := panelWidth - 6
-
-	// Description block below the metadata, separated by a divider.
-	// Only rendered when the issue has a description.
-	if i.Description != "" {
-		divider := faintStyle.Render(strings.Repeat("─", innerWidth))
-		desc := lipgloss.NewStyle().Width(innerWidth).Render(i.Description)
-		fields = lipgloss.JoinVertical(lipgloss.Left,
-			fields,
-			"",
-			divider,
-			"",
-			desc,
-		)
+	headerLines := 2
+	remainingHeight := b.termHeight - headerLines
+	if remainingHeight < 5 {
+		remainingHeight = 5
+	}
+	// Viewport height: remaining space minus border (2) + padding (2).
+	vpHeight := remainingHeight - 4
+	if vpHeight < 1 {
+		vpHeight = 1
 	}
 
+	vp := viewport.New(viewport.WithWidth(innerWidth), viewport.WithHeight(vpHeight))
+	// SoftWrap is intentionally off. The content is pre-formatted at
+	// innerWidth by zoomContent (via Width() on each column and
+	// JoinHorizontal). Enabling soft-wrap causes the viewport to
+	// re-wrap lines when ANSI width accounting differs by even 1 char,
+	// pushing fragments into the wrong column.
+	vp.KeyMap = zoomKeyMap()
+	vp.SetContent(b.zoomContent(innerWidth))
+	b.zoom.vp = vp
+}
+
+// openZoom captures the focused card and its resolved dependencies, then
+// enters viewZoom. Does nothing if no card is selected. Unlike openDetail,
+// openZoom does not mutate navigation state — it is a transient peek.
+func (b *board) openZoom() {
+	cd, ok := b.cols[b.focused].SelectedCard()
+	if !ok {
+		return
+	}
+	b.zoom = &zoomState{
+		issue:     cd.issue,
+		colIdx:    b.focused,
+		blockedBy: b.resolveBlockedBy(cd.issue.ID),
+		blocks:    b.resolveBlocks(cd.issue.ID),
+	}
+	b.syncZoomViewport()
+	b.view = viewZoom
+}
+
+// zoomView renders the peek overlay. The column headers remain visible at the
+// top of the screen — the zoom panel is placed below them. Content scrolls
+// via a viewport when it exceeds the available height.
+func (b *board) zoomView() string {
+	// Render the normal board view as the background so column headers stay visible.
+	b.view = viewBoard
+	boardBg := b.viewContent()
+	b.view = viewZoom
+
+	panelWidth := b.termWidth - 8
+	if panelWidth < 40 {
+		panelWidth = 40
+	}
+	innerWidth := panelWidth - 6
+
+	// Viewport content inside a bordered, padded panel.
+	// Width is the TOTAL rendered width (includes border + padding),
+	// so use panelWidth, not innerWidth.
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorZoom).
 		Padding(1, 2).
-		Width(innerWidth)
+		Width(panelWidth)
 
-	rendered := panelStyle.Render(fields)
+	vpContent := b.zoom.vp.View()
 
-	// Count lines in the background view to measure the header height.
-	// Place the panel below the column headers (roughly 2 lines) so headers stay visible.
+	// Scroll indicator when content overflows.
+	totalLines := b.zoom.vp.TotalLineCount()
+	vpHeight := b.zoom.vp.Height()
+	if totalLines > vpHeight {
+		pct := fmt.Sprintf("%d%%", int(b.zoom.vp.ScrollPercent()*100))
+		indicator := styleFaint().Render(pct)
+		// Right-align the indicator within the panel.
+		pad := innerWidth - lipgloss.Width(indicator)
+		if pad < 0 {
+			pad = 0
+		}
+		vpContent += "\n" + strings.Repeat(" ", pad) + indicator
+	}
+
+	rendered := panelStyle.Render(vpContent)
+
 	bgLines := strings.Split(boardBg, "\n")
-	headerLines := 2 // top padding + column headings row
+	headerLines := 2
 	if len(bgLines) > headerLines {
-		// Build composite: header lines from background, then centered panel below.
 		header := strings.Join(bgLines[:headerLines], "\n")
 
-		// Remaining height available for the panel.
 		remainingHeight := b.termHeight - headerLines
 		if remainingHeight < 5 {
 			remainingHeight = 5
@@ -1657,7 +1772,6 @@ func (b *board) zoomView() string {
 		return header + "\n" + panelPlaced
 	}
 
-	// Fallback: center the panel over the full screen.
 	return lipgloss.Place(b.termWidth, b.termHeight,
 		lipgloss.Center, lipgloss.Center,
 		rendered,
@@ -1668,7 +1782,8 @@ func (b *board) zoomView() string {
 // Methods return (tea.Model, tea.Cmd) so Update can tail-return them directly.
 
 // handleZoomKey processes keypresses while the zoom peek overlay is active.
-// Pressing Edit transitions directly to the edit form; any other key dismisses.
+// Edit opens the form; esc/ctrl+c dismiss; everything else forwards to the
+// viewport for scrolling. This avoids accidental dismissal while scrolling.
 func (b *board) handleZoomKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, keys.Edit) {
 		issue := b.zoom.issue
@@ -1681,9 +1796,16 @@ func (b *board) handleZoomKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.view = viewForm
 		return b, textinputBlink()
 	}
-	b.view = viewBoard
-	b.zoom = nil
-	return b, nil
+	switch msg.String() {
+	case "esc", "ctrl+c":
+		b.view = viewBoard
+		b.zoom = nil
+		return b, nil
+	}
+	// Forward to viewport for j/k/arrows/pgup/pgdn scrolling.
+	vp, cmd := b.zoom.vp.Update(msg)
+	b.zoom.vp = vp
+	return b, cmd
 }
 
 func (b *board) handleQuit() (tea.Model, tea.Cmd) {
