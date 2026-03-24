@@ -101,7 +101,7 @@ require_bl
 # without value. Allow the stop hook to pass through silently.
 # Note: this comes AFTER the uncommitted changes gate — a dirty working tree
 # still blocks regardless of whether workers are running.
-_running_agents=$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running")] | length' 2>/dev/null || echo "0")
+_running_agents=$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running" and .status != "done")] | length' 2>/dev/null || echo "0")
 if [ "$_running_agents" -gt 0 ]; then
   jq -n '{
     systemMessage: "Workers are running. Pausing until they complete."
