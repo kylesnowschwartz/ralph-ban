@@ -158,6 +158,30 @@ else
 fi
 echo "$current_hash" >"$HASH_FILE"
 
+# --- Phase 6.5: Circuit breaker warnings ---
+# Check for cards with tripped circuit breakers (OPEN or HALF_OPEN).
+# The circuit breaker tracks review→doing bounces. OPEN means the card
+# has bounced 3+ times and is in cool-down. HALF_OPEN means one probe
+# attempt is allowed. These warnings go into the systemMessage so the
+# orchestrator sees them alongside the block directive.
+cb_warnings=""
+if [ -f "$CB_FILE" ]; then
+  # Read all card IDs from the circuit breaker file
+  cb_card_ids=$(jq -r 'keys[]' "$CB_FILE" 2>/dev/null || true)
+  for cb_card_id in $cb_card_ids; do
+    cb_state=$(cb_get_state "$cb_card_id")
+    case "$cb_state" in
+      OPEN)
+        cb_bounce_count=$(jq -r --arg id "$cb_card_id" '.[$id].bounce_count // 0' "$CB_FILE" 2>/dev/null || echo "0")
+        cb_warnings+="CIRCUIT BREAKER OPEN: Card ${cb_card_id} has bounced ${cb_bounce_count} times between review and doing. Escalate to user or try a fundamentally different approach."$'\n'
+        ;;
+      HALF_OPEN)
+        cb_warnings+="CIRCUIT BREAKER HALF_OPEN: Card ${cb_card_id} — one probe attempt allowed. If it bounces again, the breaker re-opens."$'\n'
+        ;;
+    esac
+  done
+fi
+
 # --- Phase 7: Block decision + guidance ---
 read todo_count doing_count <<<"$(count_active)"
 
@@ -215,6 +239,10 @@ STOP BLOCKED — attempt $((stall_count + 1)) of ${MAX_STALLS}. ${summary}
 You MUST continue working. Do not respond with a short acknowledgment — that burns a stop cycle without advancing the board. After ${remaining} more stalled attempts the safety valve allows exit, but the goal is to drain the board, not run out the clock.
 EOF
   )
+
+  if [ -n "$cb_warnings" ]; then
+    directive+=$'\n\n'"${cb_warnings}"
+  fi
 
   if [ -n "$next_action" ]; then
     directive+=$'\n\n'"NEXT ACTION: ${next_action}"
