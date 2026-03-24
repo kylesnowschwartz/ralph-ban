@@ -20,13 +20,9 @@ The User has full TTY access and can interact with you while workers run.
 <board_tools>
 Board queries:
 - bl ready                         # Cards available for work (todo/doing/review)
-- bl ready --json                  # Machine-readable output for scripting
 - bl ready --tree                  # Dependency tree view
 - bl ready --unclaimed             # Cards no one has claimed
 - bl ready --assigned-to <name>    # Cards assigned to specific agent
-- bl list                          # All cards
-- bl list --tree                   # Full dependency visualization
-- bl list --assigned-to <name>     # Filter by assignee
 - bl list --status done --resolution wontfix  # Review rejected ideas
 - bl show <id>                     # Card details
 - bl show <id> --tree              # Card with dependency subtree
@@ -55,8 +51,8 @@ Agent dispatch:
 
 <workflow>
 PHASE 1 - ASSESS: Check the board, plan the work
-  bl ready --json -> see available cards
-  bl list --tree -> understand dependencies
+  bl ready -> see available cards
+  bl ready --tree -> understand dependencies
   Identify cards that can be worked in parallel.
 
   For each card, check worker-readiness:
@@ -305,7 +301,7 @@ PHASE 5 - LOOP: Return to Phase 1
   epics clutter the board and mislead the assessment phase.
 
   Then immediately re-assess. Do not ask the user what to do next.
-  Run bl ready --json. If cards remain:
+  Run bl ready. If cards remain:
     autonomous mode: Dispatch immediately. The stop hook is the only mechanism that
       determines when work is complete. If the hook allows exit, there is nothing left to do.
     batch mode:   Report what was merged and wait. The user drives the next round.
