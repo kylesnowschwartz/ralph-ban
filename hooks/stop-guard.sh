@@ -12,6 +12,8 @@
 #   4.5. Worker activity gate (pauses quietly while workers run)
 #   5. Anti-loop guard (mode-aware: batch exits, autonomous falls through)
 #   6. Stall detection (safety valve: allows exit after MAX_STALLS)
+#   6.5. Circuit breaker warnings (cards bouncing review→doing)
+#   6.75. Worker-level stall detection (cards with stale last_activity)
 #   7. Block decision + guidance message
 
 # --- Phase 1: Escape hatch ---
@@ -182,6 +184,36 @@ if [ -f "$CB_FILE" ]; then
   done
 fi
 
+# --- Phase 6.75: Worker-level stall detection ---
+# Complements Phase 6 (orchestrator stall detection). Phase 6 counts consecutive
+# stop attempts with no board hash change. This check detects individual workers
+# that haven't updated their last_activity in STALL_ACTIVITY_MINUTES.
+STALL_ACTIVITY_MINUTES="${STALL_ACTIVITY_MINUTES:-30}"
+stall_warnings=""
+stall_output=$(
+  state=$(read_board)
+  [ -z "$state" ] && exit 0
+  now=$(date +%s)
+  threshold=$((STALL_ACTIVITY_MINUTES * 60))
+
+  while IFS=$'\t' read -r card_id agent last_activity; do
+    [ -z "$last_activity" ] && continue
+    # Convert ISO 8601 timestamp to epoch. Strip fractional seconds, replace
+    # Z with +0000, and strip colon from tz offset so macOS date -j can parse it.
+    ts_clean=$(echo "$last_activity" | sed 's/\.[0-9]*//' | sed 's/Z$/+0000/' | sed 's/:\([0-9][0-9]\)$/\1/')
+    last_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$ts_clean" "+%s" 2>/dev/null || true)
+    [ -z "$last_epoch" ] && continue
+    age=$((now - last_epoch))
+    if [ "$age" -ge "$threshold" ]; then
+      age_min=$((age / 60))
+      echo "Card ${card_id} (agent: ${agent:-unknown}) has been running for ${age_min}m without activity update"
+    fi
+  done < <(echo "$state" | jq -r 'select(.agent_state == "running" and .last_activity != null) | [.id, (.assigned_to // "unknown"), .last_activity] | @tsv' 2>/dev/null || true)
+)
+if [ -n "$stall_output" ]; then
+  stall_warnings="WORKER STALL DETECTED:\n${stall_output}"
+fi
+
 # --- Phase 7: Block decision + guidance ---
 read todo_count doing_count <<<"$(count_active)"
 
@@ -279,6 +311,10 @@ LOOP
 
   if [ "$stop_mode" = "autonomous" ]; then
     directive+=$'\n\n'"Autonomous mode: merge reviewed cards without asking — reviewer approval is sufficient. Dispatch the next card immediately."
+  fi
+
+  if [ -n "$stall_warnings" ]; then
+    directive+=$'\n\n'"${stall_warnings}"
   fi
 
   jq -n \
