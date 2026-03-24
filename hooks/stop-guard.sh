@@ -18,7 +18,7 @@
 
 # --- Phase 1: Escape hatch ---
 # Derive git root without sourcing board-state.sh (minimize failure surface).
-_STOP_ROOT="${BL_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+_STOP_ROOT="${BL_ROOT:-$(git --no-optional-locks rev-parse --show-toplevel 2>/dev/null || pwd)}"
 if [ -f "${_STOP_ROOT}/${RALPH_BAN_DIR:-.ralph-ban}/disabled" ]; then
   exit 0
 fi
@@ -81,7 +81,7 @@ stop_mode=$(read_stop_mode)
 # --- Phase 3: Uncommitted changes gate ---
 # Always blocks, regardless of stop_hook_active or stop_mode.
 # Checked once here so neither the anti-loop nor the board logic duplicates it.
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+if [ -n "$(git --no-optional-locks status --porcelain 2>/dev/null)" ]; then
   jq -n '{
     decision: "block",
     reason: "Uncommitted changes — commit or stash before stopping",

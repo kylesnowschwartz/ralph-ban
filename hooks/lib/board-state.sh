@@ -3,7 +3,7 @@
 # Sourced by session-start.sh, stop-guard.sh.
 
 # Anchor to BL_ROOT when set (worktree support), else git root, else cwd.
-_GIT_ROOT="${BL_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+_GIT_ROOT="${BL_ROOT:-$(git --no-optional-locks rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
 # Directory name for ralph-ban config. Override with RALPH_BAN_DIR env var.
 RALPH_BAN_DIR="${RALPH_BAN_DIR:-.ralph-ban}"
