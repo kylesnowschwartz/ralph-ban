@@ -1690,3 +1690,98 @@ func TestZoomScrollKey_DoesNotDismiss(t *testing.T) {
 		t.Error("zoom should still be active after scroll key")
 	}
 }
+
+// --- vertical layout Up/Down column boundary navigation ---
+
+// TestVerticalLayout_DownAtLastCardMovesFocusToNextColumn verifies that pressing
+// Down at the last card of a column moves focus to the next column when in
+// vertical layout mode.
+func TestVerticalLayout_DownAtLastCardMovesFocusToNextColumn(t *testing.T) {
+	b := newTestBoard(t)
+	b.verticalLayout = true
+
+	cardA := makeIssue("bl-a", "Card A", beadslite.StatusTodo)
+	cardB := makeIssue("bl-b", "Card B", beadslite.StatusTodo)
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+	b.cols[colTodo].SetItems([]list.Item{card{issue: cardA}, card{issue: cardB}})
+
+	cardC := makeIssue("bl-c", "Card C", beadslite.StatusDoing)
+	b.cols[colDoing].SetItems([]list.Item{card{issue: cardC}})
+
+	// Select the last item in the Todo column.
+	b.cols[colTodo].list.Select(1)
+
+	// Press Down — should move focus to Doing column.
+	b.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	if b.focused != colDoing {
+		t.Errorf("focused = %d after Down at last item in vertical mode, want colDoing (%d)", b.focused, colDoing)
+	}
+	// Cursor should be on the first card of the new column.
+	if b.cols[colDoing].list.Index() != 0 {
+		t.Errorf("cursor = %d after column advance, want 0 (first item)", b.cols[colDoing].list.Index())
+	}
+}
+
+// TestVerticalLayout_UpAtFirstCardMovesFocusToPrevColumn verifies that pressing
+// Up at the first card of a column moves focus to the previous column in
+// vertical layout mode, landing on the last card.
+func TestVerticalLayout_UpAtFirstCardMovesFocusToPrevColumn(t *testing.T) {
+	b := newTestBoard(t)
+	b.verticalLayout = true
+
+	cardA := makeIssue("bl-a", "Card A", beadslite.StatusTodo)
+	cardB := makeIssue("bl-b", "Card B", beadslite.StatusTodo)
+	b.cols[colTodo].SetItems([]list.Item{card{issue: cardA}, card{issue: cardB}})
+
+	cardC := makeIssue("bl-c", "Card C", beadslite.StatusDoing)
+	cardD := makeIssue("bl-d", "Card D", beadslite.StatusDoing)
+	b.cols[colDoing].Focus()
+	b.focused = colDoing
+	b.cols[colDoing].SetItems([]list.Item{card{issue: cardC}, card{issue: cardD}})
+
+	// Cursor is already at index 0 in Doing column.
+	b.cols[colDoing].list.Select(0)
+
+	// Press Up — should move focus back to Todo column.
+	b.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if b.focused != colTodo {
+		t.Errorf("focused = %d after Up at first item in vertical mode, want colTodo (%d)", b.focused, colTodo)
+	}
+	// Cursor should be on the last card of the previous column.
+	wantIdx := 1 // two items, last is index 1
+	if b.cols[colTodo].list.Index() != wantIdx {
+		t.Errorf("cursor = %d after column retreat, want %d (last item)", b.cols[colTodo].list.Index(), wantIdx)
+	}
+}
+
+// TestHorizontalLayout_UpDownDelegateToColumn verifies that in horizontal layout
+// mode, Up and Down fall through to the focused column without changing focus.
+func TestHorizontalLayout_UpDownDelegateToColumn(t *testing.T) {
+	b := newTestBoard(t)
+	b.verticalLayout = false
+
+	cardA := makeIssue("bl-a", "Card A", beadslite.StatusTodo)
+	cardB := makeIssue("bl-b", "Card B", beadslite.StatusTodo)
+	b.focused = colTodo
+	b.cols[colTodo].Focus()
+	b.cols[colTodo].SetItems([]list.Item{card{issue: cardA}, card{issue: cardB}})
+
+	// Select last item — in horizontal mode Down should not change focus.
+	b.cols[colTodo].list.Select(1)
+	b.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	if b.focused != colTodo {
+		t.Errorf("focused = %d after Down in horizontal mode, want colTodo (%d)", b.focused, colTodo)
+	}
+
+	// Select first item — in horizontal mode Up should not change focus.
+	b.cols[colTodo].list.Select(0)
+	b.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if b.focused != colTodo {
+		t.Errorf("focused = %d after Up in horizontal mode, want colTodo (%d)", b.focused, colTodo)
+	}
+}
