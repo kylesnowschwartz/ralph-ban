@@ -94,13 +94,7 @@ fi
 require_bl
 
 # --- Phase 4.5: Worker activity gate ---
-# Detects active workers via TWO signals:
-#   1. Explicit marker file (.workers-active) written by the orchestrator
-#   2. Cards with agent_state=running in the database
-# Either signal is sufficient. The marker is the designed mechanism but the
-# orchestrator sometimes forgets to write it. Checking agent_state as fallback
-# means the hook infers the same thing from board state — defining the error
-# out of existence rather than relying on orchestrator discipline.
+# Detects active workers via agent_state=running in the database.
 #
 # When workers are active, the orchestrator can't make progress — it's waiting
 # for background agents to return. Firing board-state guidance creates noise
@@ -108,7 +102,7 @@ require_bl
 # Note: this comes AFTER the uncommitted changes gate — a dirty working tree
 # still blocks regardless of whether workers are running.
 _running_agents=$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running")] | length' 2>/dev/null || echo "0")
-if check_worker_marker || [ "$_running_agents" -gt 0 ]; then
+if [ "$_running_agents" -gt 0 ]; then
   jq -n '{
     systemMessage: "Workers are running. Pausing until they complete."
   }'
@@ -294,7 +288,6 @@ All cards are dispatched — workers are running. Use the wait productively (Pha
 - Groom backlog: break large cards into smaller ones, add specs to cards that lack them, add missing dependencies
 - Review prep: read the files workers are modifying so you review faster when they return
 - Small direct fixes: doc typos, config changes, hook tweaks — anything that won't conflict with worker scope
-- Write the worker marker if you haven't: echo $(date +%s) > .ralph-ban/.workers-active
 
 When workers complete, transition to Phase 3 (review). The board will advance when you merge their work.
 WAITING

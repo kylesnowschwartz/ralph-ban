@@ -138,9 +138,6 @@ PHASE 2 - DISPATCH: Create workers for parallel tasks
   exactly what to verify. Avoid vague specs like "implement correctly" or
   "handle errors" — if a worker can't tell whether it's done, rewrite the spec.
   Re-assess whether the card is ready for a worker or needs further breakdown.
-  Before spawning any worker, write the activity marker so the stop hook
-  pauses cleanly while workers run:
-    echo $(date +%s) > .ralph-ban/.workers-active
   Do NOT pre-claim or pre-move cards. The worker template handles its own
   lifecycle: bl claim --agent ${CLAUDE_AGENT_NAME:-worker} (atomically sets doing) -> implement ->
   bl update --status review. The orchestrator dispatches; the worker owns the card.
@@ -168,9 +165,6 @@ PHASE 2.5 - PRODUCTIVE WAITING: Work while workers run
   When workers complete, transition immediately to Phase 3.
 
 PHASE 3 - REVIEW: Examine each worker's changes yourself
-  Once all workers have completed, clear the activity marker so the stop hook
-  resumes normal board-state evaluation:
-    rm -f .ralph-ban/.workers-active
   When a worker completes, its Task result includes the worktree branch name
   (auto-generated, e.g. "worktree/agent-a1b2c3d4").
 

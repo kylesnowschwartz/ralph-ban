@@ -442,63 +442,6 @@ read_stop_mode() {
   fi
 }
 
-# --- Worker activity marker ---
-# The orchestrator writes this marker before spawning workers and removes it
-# when all workers complete. The stop hook reads it to pause quietly while
-# workers are running, rather than repeatedly firing board-state guidance that
-# the orchestrator cannot act on mid-dispatch.
-#
-# Staleness expiry: if the orchestrator crashes or forgets to clear the marker,
-# it auto-expires after WORKER_MARKER_TTL_SECONDS (default 5 minutes). Any stop
-# hook invocation beyond that window treats the marker as stale and ignores it.
-
-WORKER_MARKER_FILE="${_GIT_ROOT}/${RALPH_BAN_DIR}/.workers-active"
-WORKER_MARKER_TTL_SECONDS="${WORKER_MARKER_TTL_SECONDS:-300}" # 5 minutes default
-
-# write_worker_marker records the current timestamp as the dispatch start.
-write_worker_marker() {
-  mkdir -p "$(dirname "$WORKER_MARKER_FILE")"
-  date +%s >"$WORKER_MARKER_FILE"
-}
-
-# clear_worker_marker removes the worker activity marker.
-clear_worker_marker() {
-  rm -f "$WORKER_MARKER_FILE"
-}
-
-# check_worker_marker returns 0 (workers active) or 1 (no active workers).
-# Returns 1 if the marker is missing or older than WORKER_MARKER_TTL_SECONDS.
-#
-# Reads content as a Unix timestamp if present. Falls back to file mtime when
-# content is empty or non-numeric (e.g., orchestrator used `touch` instead of
-# `echo $(date +%s) >`). This eliminates a silent failure mode where `touch`
-# creates a valid file but check_worker_marker sees epoch-0 and auto-expires it.
-check_worker_marker() {
-  if [ ! -f "$WORKER_MARKER_FILE" ]; then
-    return 1
-  fi
-
-  local marker_ts now elapsed
-  marker_ts=$(cat "$WORKER_MARKER_FILE" 2>/dev/null || echo "")
-
-  # Fall back to file mtime when content isn't a valid timestamp.
-  # This handles `touch` (empty file) and any other non-numeric content.
-  if ! [[ "$marker_ts" =~ ^[0-9]+$ ]]; then
-    marker_ts=$(stat -f %m "$WORKER_MARKER_FILE" 2>/dev/null || echo "0")
-  fi
-
-  now=$(date +%s)
-  elapsed=$((now - marker_ts))
-
-  if [ "$elapsed" -ge "$WORKER_MARKER_TTL_SECONDS" ]; then
-    # Stale marker — auto-expire so a crashed orchestrator can't trap agents forever.
-    rm -f "$WORKER_MARKER_FILE"
-    return 1
-  fi
-
-  return 0
-}
-
 # --- Rate limit pause ---
 # When a worker hits Claude's 5-hour rate limit the board-sync hook writes a
 # pause marker. The orchestrator reads it before dispatching new work, so it
