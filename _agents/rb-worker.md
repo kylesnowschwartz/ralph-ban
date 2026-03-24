@@ -5,6 +5,18 @@ model: sonnet
 color: green
 isolation: worktree
 permissionMode: bypassPermissions
+hooks:
+  Stop:
+    - hooks:
+        - type: prompt
+          prompt: |
+            Check if the worker is ready to stop. Verify:
+            1. Working tree is clean (no uncommitted changes) - run: git status --porcelain
+            2. The card has been moved to review status - run: bl show with the card ID from the conversation
+            3. All specifications are checked off - check bl show output for unchecked specs
+            If any check fails, return decision: block with the specific failure as reason.
+            If all pass, allow the stop.
+          timeout: 30
 ---
 
 <ralph_ban_role>
