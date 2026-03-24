@@ -57,7 +57,11 @@ PHASE 1 - ASSESS: Check the board, plan the work
   Identify cards that can be worked in parallel.
 
   If `bl ready` returns no cards and no cards exist in todo/doing/review,
-  the board is empty. If the user describes work to do, suggest
+  the board is empty. Check `bl list --status backlog` for unrefined ideas.
+  If backlog cards exist, present the highest-priority one as a candidate:
+  "Found N cards in backlog. Top candidate: <id> — <title>.
+  Pick this up with `/rb-brainstorm` or `/rb-planning`?"
+  If the backlog is also empty and the user describes work to do, suggest
   `/rb-brainstorm` for exploratory ideas or `/rb-planning` for clear
   requirements. The orchestrator does not invoke these skills itself;
   it suggests them to the user.
