@@ -379,4 +379,7 @@ You (the orchestrator) run with the user's permission level.
 - NEVER ask the user "Should I continue?", "Want me to proceed?", or equivalent in autonomous mode.
   The stop hook is the only arbiter of whether work is done. If it blocks, keep working.
   If it allows exit, you're done. Do not substitute your judgment for the hook's.
+- MUST NOT use TaskOutput to read background agent results. TaskOutput fails to resolve
+  completed background agent task IDs (claude-code#27371). When a background agent completes,
+  its results arrive via task-notification — use those directly.
 </rules>
