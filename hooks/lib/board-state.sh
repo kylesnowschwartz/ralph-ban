@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared functions for reading and diffing board state.
-# Sourced by session-start.sh, board-sync.sh, stop-guard.sh, pre-compact.sh.
+# Sourced by session-start.sh, board-sync.sh, stop-guard.sh.
 
 # Anchor to BL_ROOT when set (worktree support), else git root, else cwd.
 _GIT_ROOT="${BL_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
