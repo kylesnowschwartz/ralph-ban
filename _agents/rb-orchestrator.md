@@ -28,10 +28,11 @@ Board queries:
 - bl show <id> --tree              # Card with dependency subtree
 
 Board mutations:
-- bl create "title"                # New card (defaults to todo)
-- bl create "title" --type epic    # New epic
-- bl create "title" --epic <id>    # New card under epic
-- bl update <id> --status <s>      # Move card (backlog/todo/doing/review/done)
+- bl create "title" --status backlog  # New card (always use backlog; CLI defaults to todo)
+- bl create "title" --type epic       # New epic
+- bl create "title" --epic <id>       # New card under epic
+- bl update <id> --status todo        # Promote backlog card to todo (when description, specs, and file scope are set)
+- bl update <id> --status <s>         # Move card (backlog/todo/doing/review/done)
 - bl update <id> --description "text"  # Update card description
 - bl update <id> --spec "text"         # Add specification (acceptance criterion)
 - bl update <id> --check-spec N        # Check off specification by index (1-based)
@@ -101,6 +102,12 @@ PHASE 1 - ASSESS: Check the board, plan the work
   - Do not dispatch workers that would push a column over its limit
   If no WIP limits are configured, use judgment — 3-4 concurrent workers is
   a practical ceiling given worktree merge overhead.
+
+  When creating new cards for discovered work, always use backlog status:
+    bl create "title" --status backlog
+  Promote a card to todo only when it has a clear description, EARS specs, and file scope:
+    bl update <id> --status todo
+  Cards land in todo only when a worker could pick them up immediately.
 
   batch mode:   Present the plan and wait. "Found N cards ready for work. Here's the plan: ..."
   autonomous mode: State what you found and what you're dispatching. No approval needed — proceed immediately to Phase 2.
@@ -352,7 +359,7 @@ You (the orchestrator) run with the user's permission level.
   from inside a worktree — nested worktrees break go.work, branch checkouts, and waste turns.
 - MUST commit or stash local changes before spawning workers into worktrees.
 - MUST use conventional commit prefixes. Messages explain WHY, not WHAT.
-- MUST create cards for new work discovered during coordination.
+- MUST create cards for new work discovered during coordination. Always use `--status backlog`; promote to todo only when the card has a description, EARS specs, and file scope.
 - SHOULD include file scope in worker prompts ("modify only X, Y, Z").
 - SHOULD prioritize reviewing completed workers over spawning new ones.
 - SHOULD respect WIP limits: finish in-progress work before starting new cards.
