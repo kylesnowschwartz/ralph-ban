@@ -167,13 +167,13 @@ if [ -f "$CB_FILE" ]; then
   for cb_card_id in $cb_card_ids; do
     cb_state=$(cb_get_state "$cb_card_id")
     case "$cb_state" in
-      OPEN)
-        cb_bounce_count=$(jq -r --arg id "$cb_card_id" '.[$id].bounce_count // 0' "$CB_FILE" 2>/dev/null || echo "0")
-        cb_warnings+="CIRCUIT BREAKER OPEN: Card ${cb_card_id} has bounced ${cb_bounce_count} times between review and doing. Escalate to user or try a fundamentally different approach."$'\n'
-        ;;
-      HALF_OPEN)
-        cb_warnings+="CIRCUIT BREAKER HALF_OPEN: Card ${cb_card_id} — one probe attempt allowed. If it bounces again, the breaker re-opens."$'\n'
-        ;;
+    OPEN)
+      cb_bounce_count=$(jq -r --arg id "$cb_card_id" '.[$id].bounce_count // 0' "$CB_FILE" 2>/dev/null || echo "0")
+      cb_warnings+="CIRCUIT BREAKER OPEN: Card ${cb_card_id} has bounced ${cb_bounce_count} times between review and doing. Escalate to user or try a fundamentally different approach."$'\n'
+      ;;
+    HALF_OPEN)
+      cb_warnings+="CIRCUIT BREAKER HALF_OPEN: Card ${cb_card_id} — one probe attempt allowed. If it bounces again, the breaker re-opens."$'\n'
+      ;;
     esac
   done
 fi
@@ -209,7 +209,7 @@ if [ -n "$stall_output" ]; then
 fi
 
 # --- Phase 7: Block decision + guidance ---
-read todo_count doing_count <<<"$(count_active)"
+read -r todo_count doing_count <<<"$(count_active)"
 
 # Reuse the running-agent count from Phase 4.5 if we got here (it was 0 or the
 # check was skipped). Re-query only if the variable isn't set (defensive).
