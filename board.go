@@ -310,22 +310,27 @@ func (b *board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// No filter active — fall through to focused column so Esc can
 			// deselect items or dismiss column-level state.
 		case key.Matches(msg, keys.Down):
-			// In vertical layout, Down at the last item moves focus to the next column.
+			// In vertical layout, Down at the last item (or in an empty column)
+			// moves focus to the next column.
 			if b.verticalLayout {
 				col := b.cols[b.focused]
-				if col.list.Index() == len(col.list.Items())-1 {
+				items := col.list.Items()
+				if len(items) == 0 || col.list.Index() == len(items)-1 {
 					b.moveFocus(1)
 					b.cols[b.focused].list.Select(0)
 					return b, nil
 				}
 			}
 		case key.Matches(msg, keys.Up):
-			// In vertical layout, Up at the first item moves focus to the previous column.
+			// In vertical layout, Up at the first item (or in an empty column)
+			// moves focus to the previous column.
 			if b.verticalLayout {
 				col := b.cols[b.focused]
-				if col.list.Index() == 0 {
+				items := col.list.Items()
+				if len(items) == 0 || col.list.Index() == 0 {
 					b.moveFocus(-1)
-					b.cols[b.focused].list.Select(len(b.cols[b.focused].list.Items()) - 1)
+					newItems := b.cols[b.focused].list.Items()
+					b.cols[b.focused].list.Select(max(len(newItems)-1, 0))
 					return b, nil
 				}
 			}
