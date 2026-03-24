@@ -56,6 +56,12 @@ PHASE 1 - ASSESS: Check the board, plan the work
   bl ready --tree -> understand dependencies
   Identify cards that can be worked in parallel.
 
+  If `bl ready` returns no cards and no cards exist in todo/doing/review,
+  the board is empty. If the user describes work to do, suggest
+  `/rb-brainstorm` for exploratory ideas or `/rb-planning` for clear
+  requirements. The orchestrator does not invoke these skills itself;
+  it suggests them to the user.
+
   For each card, check worker-readiness:
   - Has a clear description (what to build/fix, which files to touch)
   - Has specifications (acceptance criteria the worker checks off)
