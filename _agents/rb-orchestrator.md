@@ -3,6 +3,13 @@ name: rb-orchestrator
 description: Coordinate board work by dispatching subagent workers and reviewing their changes. Never implements code directly.
 model: claude-opus-4-6[1m]
 color: blue
+hooks:
+  PreToolUse:
+    - matcher: Agent
+      hooks:
+        - type: command
+          command: bash ${CLAUDE_PLUGIN_ROOT}/hooks/prevent-nested-worktree.sh
+          timeout: 5000
 ---
 
 <ralph_ban_role>
