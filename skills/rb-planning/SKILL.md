@@ -1,12 +1,35 @@
 ---
-description: Break down planned work into bl cards for ralph-ban orchestration
-argument-hint: [plan-or-context]
-allowed-tools: Read, Grep, Glob, Bash(bl:*), Bash(git:*)
+name: rb-planning
+description: >-
+  Break down work into board cards for ralph-ban orchestration. This skill
+  should be used when the user has a plan, design doc, or clear requirement
+  to decompose into epics and tasks with EARS specs. Triggers on "plan this",
+  "create cards", "break this down", "decompose into tasks", "rb-planning",
+  "put this on the board", or when a design doc from /rb-brainstorm needs
+  to become actionable work. Creates cards via bl CLI with specs, priorities,
+  dependencies, and epic grouping.
+argument-hint: "[plan, design doc path, or requirement description]"
 ---
 
 # Board Planning
 
 Break down $ARGUMENTS into epics and tasks on the bl board. The rb-orchestrator will dispatch workers from these cards, so every card must be self-contained and worker-ready.
+
+## Phase 0: Design Preamble (conditional)
+
+**Skip this phase when:**
+- Input is a design doc from `rb-brainstorm` (already contains Architecture and Decisions sections)
+- Input is already a task-level breakdown (lists specific files and changes)
+
+**Run this phase when:**
+- Input describes work at the requirement level (goals, behaviors) without a prior brainstorm
+
+Steps:
+1. Read the requirement or goal
+2. Explore codebase context: read target files, trace existing patterns
+3. Make architectural decisions: file structure, module boundaries, interfaces
+4. Run `mkdir -p .agent-history/` and save decisions to `.agent-history/YYYY-MM-DD-<topic>-design.md`
+5. Flow into Phase 1 with the architectural context
 
 ## Phase 1: Understand the Work
 
@@ -14,7 +37,7 @@ Read the plan, outline, or context provided. If $ARGUMENTS references files, rea
 
 Identify the codebase context:
 - Read CLAUDE.md for architecture and conventions
-- Check `bl list --tree` for existing board state and naming patterns
+- Check `bl ready` and `bl list --status backlog` for existing board state (never full `bl list` which dumps the large done column)
 - Identify which files and packages the work touches
 
 ## Phase 2: Structure into Epics and Tasks
@@ -53,32 +76,7 @@ End every description with:
 
 ### Specifications (EARS notation)
 
-Specs are acceptance criteria. The bl CLI blocks the review transition until all specs are checked off. Write specs so a worker can read each one and unambiguously determine whether it's satisfied.
-
-Use EARS (Easy Approach to Requirements Syntax) patterns:
-- **Ubiquitous**: `The <system> shall <response>`
-- **Event-driven**: `When <trigger>, the <system> shall <response>`
-- **State-driven**: `While <precondition>, the <system> shall <response>`
-- **Unwanted behavior**: `If <trigger>, then the <system> shall <response>`
-
-Concrete specs (good):
-- `When cost is nil, the widget shall return empty string`
-- `The function shall be registered as 'cost' in widget.Registry`
-
-Vague specs (bad):
-- `Handle errors properly`
-- `Implement the feature correctly`
-
-Every task needs at minimum:
-1. A spec naming the target file(s)
-2. A spec for the happy path behavior
-3. A spec for edge cases or empty/nil handling
-4. A spec for tests
-
-When a card introduces or changes constants, defaults, or magic numbers, add a
-spec pinning the values: `"Default thresholds shall be: warn=60%, critical=80%"`.
-Without this, a later card touching the same code may silently supersede the values.
-The spec makes the change intentional and visible.
+Specs are acceptance criteria. The bl CLI blocks the review transition until all specs are checked off. For notation patterns and examples, read `references/ears-guide.md`.
 
 ### Metadata
 
@@ -98,20 +96,34 @@ For research-dependent work, split into two cards:
 1. **Spike** (P1): time-boxed investigation, output is findings in description
 2. **Implementation** (P2, blocked by spike): conditional on spike results
 
-## Phase 5: Create Cards
+## Phase 5: Review Decomposition
 
-Use bl to create the cards. Create epics first, then tasks with `--epic` and `--blocked-by` flags.
+Before creating cards, present the full plan to the user:
+- List each epic and its tasks in tree form
+- Show the dependency graph
+- For each task: title, description summary, file scope, spec count
+- Ask: "Does this breakdown look right? Any cards to add, remove, or restructure?"
+
+Revise based on feedback. This catches decomposition problems before cards are created.
+
+## Phase 6: Create Cards
+
+Use bl to create the cards. Create epics first, then tasks with `--epic` and `--blocked-by` flags. **All cards start in backlog**, then promote to todo when specs and file scope are verified.
 
 ```
-bl create "Epic title" --type epic -p1 --description "..."
-bl create "Task title" --epic <epic-id> -p1 --blocked-by <dep-id> \
+bl create "Epic title" --type epic -p1 --status backlog --description "..."
+bl create "Task title" --epic <epic-id> -p1 --status backlog --blocked-by <dep-id> \
   --description "..." \
   --spec "When X, the system shall Y" \
   --spec "The module shall be registered as 'name' in Registry" \
   --spec "Unit test: <specific test scenarios>"
 ```
 
-After creating all cards, run `bl list --status todo --tree` and present the full board to the user for review.
+After creating cards with specs, promote to todo:
+
+```
+bl update <id> --status todo
+```
 
 ## Quality Checklist
 
@@ -123,6 +135,7 @@ Before presenting the board, verify:
 - [ ] Dependencies capture all data-flow relationships
 - [ ] Research questions are in spike tasks, not mixed into implementation
 - [ ] Priorities reflect actual ordering needs (P1 gates P2 work)
-- [ ] When two tasks modify the same file, note the overlap in both descriptions so the orchestrator can plan merge order (file-scope overlap is acceptable — the orchestrator resolves conflicts during merge)
+- [ ] When two tasks modify the same file, note the overlap in both descriptions so the orchestrator can plan merge order
 
-Present the tree view and ask: "Board ready for orchestrator dispatch?"
+After verification, run `bl ready --tree` and present the board to the user:
+"Board ready for orchestrator dispatch?"

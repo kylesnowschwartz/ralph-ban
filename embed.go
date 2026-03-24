@@ -3,7 +3,7 @@ package main
 import "embed"
 
 // pluginFS bundles the complete Claude Code plugin for extraction by `ralph-ban init`.
-// The three embedded trees — plugin manifest, hook scripts, and agent definitions —
+// The embedded trees — plugin manifest, hook scripts, agent definitions, and skills —
 // form a self-contained plugin directory that `--plugin-dir` can load directly.
 // The `all:` prefix is required for `.claude-plugin` because embed skips dot-prefixed
 // directories by default.
@@ -12,7 +12,7 @@ import "embed"
 // agent discovery chain. extractPlugin remaps `_agents/` → `agents/` in the output
 // so the plugin structure is correct.
 //
-//go:embed all:.claude-plugin _agents commands hooks
+//go:embed all:.claude-plugin _agents hooks skills
 var pluginFS embed.FS
 
 // gitHooksFS bundles git hooks (post-checkout, etc.) for installation by `ralph-ban init`.

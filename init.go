@@ -254,7 +254,7 @@ func installAgents(srcDir, destDir string) error {
 }
 
 // extractPlugin writes the embedded plugin files to destDir.
-// The embedded FS (pluginFS) contains .claude-plugin/, _agents/, and hooks/.
+// The embedded FS (pluginFS) contains .claude-plugin/, _agents/, hooks/, and skills/.
 // _agents/ is remapped to agents/ in the output so the plugin has the standard
 // structure Claude Code expects. The underscore prefix in the source keeps agent
 // files out of Claude Code's discovery chain during development.
