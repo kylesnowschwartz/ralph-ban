@@ -12,7 +12,7 @@ import "embed"
 // agent discovery chain. extractPlugin remaps `_agents/` → `agents/` in the output
 // so the plugin structure is correct.
 //
-//go:embed all:.claude-plugin _agents hooks skills
+//go:embed all:.claude-plugin _agents commands hooks skills
 var pluginFS embed.FS
 
 // gitHooksFS bundles git hooks (post-checkout, etc.) for installation by `ralph-ban init`.
