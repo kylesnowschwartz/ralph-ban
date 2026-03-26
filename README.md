@@ -5,7 +5,7 @@ A [ralph loop](https://ghuntley.com/ralph/) sets a target and works until it's d
 Terminal kanban built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), backed by [beads-lite](https://github.com/kylesnowschwartz/beads-lite)'s SQLite database. Five columns (Backlog, To Do, Doing, Review, Done) with vim-style navigation. The board pans horizontally when the terminal is too narrow. Cards sync across the `bl` CLI, Claude Code hooks, and other TUI sessions via 2-second polling.
 
 <p align="center">
-  <img src="demo.png" alt="ralph-ban board" width="600" />
+  <img src="demo.gif" alt="ralph-ban board demo" width="850" />
 </p>
 
 ## Install
