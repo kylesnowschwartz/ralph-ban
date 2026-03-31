@@ -19,6 +19,7 @@ type claudeSession struct {
 	claudeArgs []string
 	agentName  string
 	auto       bool
+	plan       bool
 }
 
 // parseClaudeFlags processes raw CLI args through the full parsing pipeline.
@@ -34,6 +35,7 @@ func parseClaudeFlags(args []string) (*claudeSession, error) {
 	resume := fs.String("resume", "", "resume a session by ID, or empty string for picker")
 	cont := fs.Bool("continue", false, "continue the most recent session")
 	auto := fs.Bool("auto", false, "autonomous mode: drain the board without pausing")
+	plan := fs.Bool("plan", false, "planning mode: brainstorm, spec, and decompose work into board cards")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: ralph-ban claude [flags] [prompt] [-- claude-flags...]
 
@@ -70,15 +72,21 @@ Examples:
 		}
 	})
 
+	// --plan and --auto are mutually exclusive: planner explores, orchestrator executes.
+	if *auto && *plan {
+		return nil, fmt.Errorf("--plan and --auto are mutually exclusive (planner explores, orchestrator executes)")
+	}
+
 	// Positional arg after flags = prompt (mirrors claude's own interface).
 	if fs.NArg() > 0 && *prompt == "" {
 		*prompt = fs.Arg(0)
 	}
 
 	return &claudeSession{
-		claudeArgs: buildClaudeArgs(*model, *prompt, *resume, resumeSet, *cont, passthrough),
+		claudeArgs: buildClaudeArgs(*model, *prompt, *resume, resumeSet, *cont, *plan, passthrough),
 		agentName:  *name,
 		auto:       *auto,
+		plan:       *plan,
 	}, nil
 }
 
@@ -145,12 +153,12 @@ func runClaude(args []string) {
 // and Claude Code falls back to the plugin cache.
 //
 // Three mutually exclusive session modes:
-//   - new (default): loads --agent rb-orchestrator with a default prompt
+//   - new (default): loads --agent rb-orchestrator (or rb-planner when plan=true)
 //   - resume (resumeSet): passes --resume [id] to continue a previous session
 //   - continue (cont): passes --continue to pick up the most recent session
 //
 // passthrough args are appended last — these come from after -- in the CLI.
-func buildClaudeArgs(model, prompt, resume string, resumeSet, cont bool, passthrough []string) []string {
+func buildClaudeArgs(model, prompt, resume string, resumeSet, cont, plan bool, passthrough []string) []string {
 	var args []string
 
 	// Load plugin from extracted directory if it exists.
@@ -173,7 +181,11 @@ func buildClaudeArgs(model, prompt, resume string, resumeSet, cont bool, passthr
 	case cont:
 		args = append(args, "--continue")
 	default:
-		args = append(args, "--agent", "rb-orchestrator")
+		if plan {
+			args = append(args, "--agent", "rb-planner")
+		} else {
+			args = append(args, "--agent", "rb-orchestrator")
+		}
 	}
 
 	// Only pass --model when explicitly overriding the agent's default.
@@ -188,7 +200,11 @@ func buildClaudeArgs(model, prompt, resume string, resumeSet, cont bool, passthr
 	// they continue where they left off.
 	if !existingSession {
 		if prompt == "" {
-			prompt = "State your role and mission, then assess the board and begin orchestration."
+			if plan {
+				prompt = "Read the board state and codebase context, then ask what I'd like to plan."
+			} else {
+				prompt = "State your role and mission, then assess the board and begin orchestration."
+			}
 		}
 		args = append(args, prompt)
 	}

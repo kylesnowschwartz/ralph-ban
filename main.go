@@ -36,6 +36,10 @@ Run the orchestrator:
   ralph-ban claude --resume                     # interactive session picker
   ralph-ban claude --resume abc123              # resume specific session
 
+Plan work:
+  ralph-ban claude --plan                         # interactive planning session
+  ralph-ban claude --plan "add card filtering"    # plan a specific feature
+
 Run 'ralph-ban <command> --help' for all flags.
 `)
 	}

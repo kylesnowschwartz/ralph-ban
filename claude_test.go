@@ -103,6 +103,35 @@ func TestParseClaudeFlags(t *testing.T) {
 			wantName: "claude",
 			wantAuto: true,
 		},
+		{
+			name:     "plan mode defaults",
+			args:     []string{"--plan"},
+			wantArgs: []string{"--agent", "rb-planner", "Read the board state and codebase context, then ask what I'd like to plan."},
+			wantName: "claude",
+		},
+		{
+			name:     "plan mode with custom prompt",
+			args:     []string{"--plan", "add card filtering"},
+			wantArgs: []string{"--agent", "rb-planner", "add card filtering"},
+			wantName: "claude",
+		},
+		{
+			name:    "plan and auto are mutually exclusive",
+			args:    []string{"--plan", "--auto"},
+			wantErr: true,
+		},
+		{
+			name:     "plan with resume skips agent",
+			args:     []string{"--plan", "--resume", "abc-123"},
+			wantArgs: []string{"--resume", "abc-123"},
+			wantName: "claude",
+		},
+		{
+			name:     "plan with continue skips agent",
+			args:     []string{"--plan", "--continue"},
+			wantArgs: []string{"--continue"},
+			wantName: "claude",
+		},
 	}
 
 	for _, tt := range tests {
@@ -200,7 +229,7 @@ func TestBuildClaudeArgs_PluginDir(t *testing.T) {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
-		args := buildClaudeArgs("", "", "", false, false, nil)
+		args := buildClaudeArgs("", "", "", false, false, false, nil)
 		found := false
 		for _, a := range args {
 			if a == "--plugin-dir" {
@@ -217,7 +246,7 @@ func TestBuildClaudeArgs_PluginDir(t *testing.T) {
 		dir := t.TempDir()
 		t.Chdir(dir)
 
-		args := buildClaudeArgs("", "", "", false, false, nil)
+		args := buildClaudeArgs("", "", "", false, false, false, nil)
 		for _, a := range args {
 			if a == "--plugin-dir" {
 				t.Errorf("expected no --plugin-dir when plugin absent, got: %v", args)
