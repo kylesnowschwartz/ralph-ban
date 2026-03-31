@@ -16,8 +16,9 @@ func TestParseClaudeFlags(t *testing.T) {
 		name     string
 		args     []string
 		wantArgs []string // exact claude args (order matters)
-		wantName string // expected agentName
-		wantAuto bool   // expected auto mode
+		wantName string   // expected agentName
+		wantAuto bool     // expected auto mode
+		wantPlan bool     // expected plan mode
 		wantErr  bool
 	}{
 		{
@@ -108,12 +109,14 @@ func TestParseClaudeFlags(t *testing.T) {
 			args:     []string{"--plan"},
 			wantArgs: []string{"--agent", "rb-planner", "Read the board state and codebase context, then ask what I'd like to plan."},
 			wantName: "claude",
+			wantPlan: true,
 		},
 		{
 			name:     "plan mode with custom prompt",
 			args:     []string{"--plan", "add card filtering"},
 			wantArgs: []string{"--agent", "rb-planner", "add card filtering"},
 			wantName: "claude",
+			wantPlan: true,
 		},
 		{
 			name:    "plan and auto are mutually exclusive",
@@ -169,6 +172,9 @@ func TestParseClaudeFlags(t *testing.T) {
 			}
 			if tt.wantAuto && !session.auto {
 				t.Error("expected auto=true, got false")
+			}
+			if tt.wantPlan && !session.plan {
+				t.Error("expected plan=true, got false")
 			}
 		})
 	}

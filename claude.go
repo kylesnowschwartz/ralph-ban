@@ -39,7 +39,7 @@ func parseClaudeFlags(args []string) (*claudeSession, error) {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: ralph-ban claude [flags] [prompt] [-- claude-flags...]
 
-Start a Claude Code session with the board orchestrator loaded.
+Start a Claude Code session with the board orchestrator or planner loaded.
 Flags before -- are ralph-ban's; flags after -- pass through to claude.
 
 Flags:
@@ -54,6 +54,10 @@ Examples:
   ralph-ban claude --resume                     # interactive session picker
   ralph-ban claude --resume abc123              # resume specific session
   ralph-ban claude -- --dangerously-skip-permissions  # pass flags to claude
+
+Plan work:
+  ralph-ban claude --plan                         # interactive planning session
+  ralph-ban claude --plan "add card filtering"    # plan a specific feature
 `)
 	}
 
@@ -124,6 +128,13 @@ func runClaude(args []string) {
 	// --auto maps to "autonomous"; absence falls through to config file or "batch" default.
 	if session.auto {
 		os.Setenv("RALPH_BAN_STOP_MODE", "autonomous")
+	}
+
+	// Plan mode: tell hooks to skip workflow gates. The planner reads code and
+	// creates board cards — it doesn't own the working tree, dispatch workers,
+	// or manage board lifecycle. The stop-guard and board-sync hooks are irrelevant.
+	if session.plan {
+		os.Setenv("RALPH_BAN_PLAN_MODE", "1")
 	}
 
 	// Disable optional git index locks for the entire session. Read-only git

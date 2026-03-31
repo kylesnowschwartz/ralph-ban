@@ -25,6 +25,14 @@ fi
 
 STOP_MSG_HASH_FILE="${_STOP_ROOT}/${RALPH_BAN_DIR:-.ralph-ban}/.stop-last-msg-hash"
 
+# --- Phase 1.5: Plan mode bypass ---
+# The planner reads code and creates board cards — it doesn't own the working
+# tree, dispatch workers, or manage board lifecycle. All stop-guard logic
+# (uncommitted changes, active work, stall detection) is irrelevant.
+if [ "${RALPH_BAN_PLAN_MODE:-}" = "1" ]; then
+  exit 0
+fi
+
 # --- Phase 2: Setup ---
 # Fail-open: any error silently allows exit.
 trap 'exit 0' ERR

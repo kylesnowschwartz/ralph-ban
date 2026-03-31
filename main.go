@@ -21,7 +21,7 @@ func main() {
 Commands:
   (default)    open the TUI kanban board
   init         initialize a new project in the current directory
-  claude       start a Claude Code orchestrator session
+  claude       start a Claude Code orchestrator or planner session
   version      print the current version
   update       update ralph-ban and bl to latest releases
 
