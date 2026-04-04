@@ -129,7 +129,11 @@ release notes="":
         exit 1
     fi
 
-    if git diff --cached --quiet; then
+    # Check if VERSION bump is staged or already committed in HEAD.
+    already_committed=false
+    if git log -1 --format=%s | grep -q "bump version to $v"; then
+        already_committed=true
+    elif git diff --cached --quiet; then
         echo "Error: nothing staged. Run 'just bump' first."
         exit 1
     fi
@@ -141,7 +145,9 @@ release notes="":
     GOWORK=off go build ./... || { echo "Error: build fails without go.work. Update go.mod dependency versions."; exit 1; }
 
     # Commit, tag, push
-    git commit -m "chore: bump version to $v"
+    if [[ "$already_committed" == false ]]; then
+        git commit -m "chore: bump version to $v"
+    fi
     git tag "v$v"
     git push && git push --tags
 
