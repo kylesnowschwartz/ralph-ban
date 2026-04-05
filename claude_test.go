@@ -22,9 +22,9 @@ func TestParseClaudeFlags(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:     "defaults",
+			name:     "defaults (no positional prompt — agent has initialPrompt)",
 			args:     nil,
-			wantArgs: []string{"--agent", "rb-orchestrator", "State your role and mission, then assess the board and begin orchestration."},
+			wantArgs: []string{"--agent", "rb-orchestrator"},
 			wantName: "claude",
 		},
 		{
@@ -42,7 +42,7 @@ func TestParseClaudeFlags(t *testing.T) {
 		{
 			name:     "model override",
 			args:     []string{"--model", "sonnet"},
-			wantArgs: []string{"--agent", "rb-orchestrator", "--model", "sonnet", "State your role and mission, then assess the board and begin orchestration."},
+			wantArgs: []string{"--agent", "rb-orchestrator", "--model", "sonnet"},
 			wantName: "claude",
 		},
 		{
@@ -84,7 +84,7 @@ func TestParseClaudeFlags(t *testing.T) {
 		{
 			name:     "passthrough flags",
 			args:     []string{"--", "--dangerously-skip-permissions"},
-			wantArgs: []string{"--agent", "rb-orchestrator", "--dangerously-skip-permissions", "State your role and mission, then assess the board and begin orchestration."},
+			wantArgs: []string{"--agent", "rb-orchestrator", "--dangerously-skip-permissions"},
 			wantName: "claude",
 		},
 		{
@@ -105,9 +105,9 @@ func TestParseClaudeFlags(t *testing.T) {
 			wantAuto: true,
 		},
 		{
-			name:     "plan mode defaults",
+			name:     "plan mode defaults (no positional prompt — agent has initialPrompt)",
 			args:     []string{"--plan"},
-			wantArgs: []string{"--agent", "rb-planner", "Read the board state and codebase context, then ask what I'd like to plan."},
+			wantArgs: []string{"--agent", "rb-planner"},
 			wantName: "claude",
 			wantPlan: true,
 		},

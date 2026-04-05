@@ -210,14 +210,11 @@ func buildClaudeArgs(model, prompt, resume string, resumeSet, cont, plan bool, p
 	// Initial prompt as positional argument. Skipped for existing sessions —
 	// they continue where they left off.
 	if !existingSession {
-		if prompt == "" {
-			if plan {
-				prompt = "Read the board state and codebase context, then ask what I'd like to plan."
-			} else {
-				prompt = "State your role and mission, then assess the board and begin orchestration."
-			}
+		// Agents define their own startup via initialPrompt in frontmatter.
+		// Only pass a positional prompt when the user provided one explicitly.
+		if prompt != "" {
+			args = append(args, prompt)
 		}
-		args = append(args, prompt)
 	}
 
 	return args

@@ -3,6 +3,8 @@ name: rb-orchestrator
 description: Coordinate board work by dispatching subagent workers and reviewing their changes. Never implements code directly.
 model: claude-opus-4-6[1m]
 color: blue
+initialPrompt: >-
+  State your role and mission, then assess the board and begin orchestration.
 hooks:
   PreToolUse:
     - matcher: Agent
