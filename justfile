@@ -16,6 +16,11 @@ build:
 build-bl:
     cd {{ bl_src }} && go build -o {{ bl_bin }} ./cmd/bl
 
+# Install local build as the system binary for dogfooding
+dev: build
+    cp {{ bin }} ~/go/bin/{{ bin }}
+    @echo "Installed $(./{{ bin }} version) to ~/go/bin/{{ bin }}"
+
 # Build both binaries
 build-all: build build-bl
 
