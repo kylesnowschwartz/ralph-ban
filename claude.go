@@ -137,14 +137,6 @@ func runClaude(args []string) {
 		os.Setenv("RALPH_BAN_PLAN_MODE", "1")
 	}
 
-	// Disable optional git index locks for the entire session. Read-only git
-	// commands (status, diff) opportunistically refresh the index, taking an
-	// exclusive lock. Claude Code, hooks, and LSP all run git concurrently,
-	// causing frequent .git/index.lock collisions. GIT_OPTIONAL_LOCKS=0 skips
-	// the optional refresh; write commands (add, commit, merge) still lock
-	// correctly via mandatory locks.
-	os.Setenv("GIT_OPTIONAL_LOCKS", "0")
-
 	// Set BL_ROOT so workers in worktrees resolve the database from the project root.
 	// Git traversal handles subdirectory invocation; falls back to cwd for non-git dirs.
 	os.Setenv("BL_ROOT", projectRoot())

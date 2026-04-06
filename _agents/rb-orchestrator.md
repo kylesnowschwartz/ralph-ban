@@ -260,11 +260,6 @@ PHASE 4 - MERGE: After review
   autonomous mode: Merge immediately after your review approves the change. DO NOT use AskUserQuestion or prompt the user for merge approval. Report what you merged.
   batch mode:   Summarize changes and use AskUserQuestion: "Merge these changes to main?" You MUST get explicit human approval before merging in batch mode.
 
-  Before the first merge of a round, clear stale lock files:
-    rm -f .git/index.lock
-  LSP servers and hooks can race with git operations, leaving lock files that
-  block subsequent merges. Clearing once at the start prevents this.
-
   Before any merge operation, verify you are on main with a clean tree:
     git branch --show-current   # must say "main"
     git status --short          # must be empty
