@@ -40,10 +40,11 @@ Layout uses `panOffset` to slide a window of visible columns (`minColumnWidth=24
 
 ## Agent Model
 
-Single agent + subagent dispatch. The lead agent reads the board and dispatches subagents for implementation, exploration, and planning. Workers run in isolated worktrees. Explore and Plan agents are read-only (no worktree needed).
+Single agent + subagent dispatch. The lead agent reads the board and dispatches subagents for implementation, review, exploration, and planning. Workers run in isolated worktrees. Reviewers, Explore, and Plan agents are read-only (no worktree needed).
 
-- **Orchestrator** (`_agents/rb-orchestrator.md`) — Reads the board, dispatches agents, reviews diffs, merges. Never implements code directly. Uses opus.
+- **Orchestrator** (`_agents/rb-orchestrator.md`) — Reads the board, dispatches agents, acts on reviewer verdicts, merges. Never implements or reviews code directly. Uses opus.
 - **Worker** (`_agents/rb-worker.md`) — Implements one card in an isolated git worktree. Uses sonnet. Workers rebase onto main before committing so the orchestrator can fast-forward merge.
+- **Reviewer** (`_agents/rb-reviewer.md`) — Reviews one worker's changes per dispatch. Uses sonnet. Classifies risk (green/yellow/red), runs verification, checks EARS specs against the code, and returns a structured verdict (approve/reject/escalate). Starts with a fresh context for structural independence from the worker's reasoning.
 - **Explore** (built-in `subagent_type: "Explore"`) — Read-only codebase research. Investigates unfamiliar code, traces call paths, scopes changes. Findings go into card descriptions or `.agent-history/`.
 - **Plan** (built-in `subagent_type: "Plan"`) — Architecture and design planning. Chooses approaches, designs module boundaries, writes implementation plans. Output enriches card descriptions so workers have clear scope.
 
@@ -71,6 +72,7 @@ Agent definitions live in `_agents/` (git-tracked, source of truth). `ralph-ban 
 | `ralph-ban claude` starts session | `--agent rb-orchestrator` | `.claude/agents/` | `--agent` CLI flag only searches `.claude/agents/` and `~/.claude/agents/` |
 | `ralph-ban claude` loads plugin | `--plugin-dir .ralph-ban/plugin/` | `.ralph-ban/plugin/.claude-plugin/` | Loads hooks, settings, and plugin agents without user-level install |
 | Orchestrator dispatches worker | `Agent(subagent_type: "rb-worker")` | `.ralph-ban/plugin/agents/` | Agent tool resolves subagent types through plugin directories |
+| Orchestrator dispatches reviewer | `Agent(subagent_type: "rb-reviewer")` | `.ralph-ban/plugin/agents/` | Reviewer runs tests, reads diffs, returns structured verdict |
 | Plugin hooks run | (automatic) | `.ralph-ban/plugin/hooks/` | Hook runner finds hooks via the loaded plugin |
 | User runs `/rb-planning` | Plugin command discovery | `.ralph-ban/plugin/commands/` | Slash commands loaded from plugin directory |
 
