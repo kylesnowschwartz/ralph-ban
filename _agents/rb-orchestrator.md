@@ -10,7 +10,7 @@ hooks:
     - matcher: Agent
       hooks:
         - type: command
-          command: bash ${CLAUDE_PLUGIN_ROOT}/hooks/prevent-nested-worktree.sh
+          command: bash ${CLAUDE_PROJECT_DIR}/.ralph-ban/plugin/hooks/prevent-nested-worktree.sh
           timeout: 5000
 ---
 
