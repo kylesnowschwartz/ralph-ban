@@ -65,13 +65,22 @@ func runInit(args []string) {
 	fs.Parse(args)
 	demo := *demoFlag
 
-	// --- Step 0: Verify git repo ---
+	// --- Step 0: Ensure a git repo exists ---
 	// Agent worktrees, hooks, and the post-checkout symlink chain all require git.
-	// Fail early with a clear message rather than failing later in confusing ways.
+	// If the directory isn't a git repo yet, run `git init` automatically — git is
+	// a hard prerequisite, not an optional setup step.
+	gitInitialized := false
 	if _, err := os.Stat(".git"); os.IsNotExist(err) {
-		fmt.Fprintln(os.Stderr, "Error: not a git repository.")
-		fmt.Fprintln(os.Stderr, "Run 'git init' first — ralph-ban needs git for agent worktrees and hooks.")
-		os.Exit(1)
+		cmd := exec.Command("git", "init")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to run 'git init': %v\n", err)
+			if len(out) > 0 {
+				fmt.Fprintln(os.Stderr, strings.TrimSpace(string(out)))
+			}
+			os.Exit(1)
+		}
+		gitInitialized = true
 	}
 
 	// --- Step 0b: Ensure .gitignore has correct entries ---
@@ -178,6 +187,9 @@ func runInit(args []string) {
 
 	// --- Step 7: Report results ---
 	fmt.Println("Initialized ralph-ban:")
+	if gitInitialized {
+		fmt.Printf("  %-24s  %s\n", ".git/", "git repository created (ralph-ban requires git)")
+	}
 	fmt.Printf("  %-24s  %s\n", ralphBanDir+"/", "board configuration")
 	if configCreated {
 		fmt.Printf("  %-24s  %s\n", configPath, "WIP limits: doing=3, review=2")
