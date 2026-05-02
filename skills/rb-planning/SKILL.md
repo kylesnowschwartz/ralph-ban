@@ -78,6 +78,25 @@ End every description with:
 
 Specs are acceptance criteria. The bl CLI blocks the review transition until all specs are checked off. For notation patterns and examples, read `references/ears-guide.md`.
 
+### Oracle declaration
+
+Specs describe the task; the oracle exercises it. Every task card carries an
+`## Oracle` block telling `rb-oracle` how to drive the change.
+
+```
+## Oracle
+kind: terminal | browser | cli | library | none
+exercise: <one or two sentences naming what to drive and what to look for>
+```
+
+Surface choices:
+- **terminal** — TUI behavior, driven via tmux. Most ralph-ban cards.
+- **browser** — Web UI, driven via playwright-cli or chrome MCP.
+- **cli** — Command-line tool, driven via shell with captured stdout/stderr/exit.
+- **library** — Importable API, driven via a tiny consumer program in scratch space.
+- **none** — No observable surface. Requires explicit rationale; choose carefully —
+  if a worker could change behavior without lint+tests catching it, the kind is not none.
+
 ### Metadata
 
 - **Priority**: P1 = must-have for the current goal, P2 = should-have, P3 = nice-to-have
@@ -131,6 +150,9 @@ Before presenting the board, verify:
 
 - [ ] Every non-epic task has 3+ specs
 - [ ] Every task description names specific files
+- [ ] Every task description includes an `## Oracle` block with `kind` and `exercise`
+- [ ] At least one EARS spec per card describes a behavior the oracle can demonstrably exercise on the named surface
+- [ ] If `kind: none`, the description includes a rationale a skeptic would accept (changes that lint+tests cannot catch are not `none`)
 - [ ] No task touches more than 4 files
 - [ ] Dependencies capture all data-flow relationships
 - [ ] Research questions are in spike tasks, not mixed into implementation

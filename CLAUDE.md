@@ -40,20 +40,34 @@ Layout uses `panOffset` to slide a window of visible columns (`minColumnWidth=24
 
 ## Agent Model
 
-Single agent + subagent dispatch. The lead agent reads the board and dispatches subagents for implementation, review, exploration, and planning. Workers run in isolated worktrees. Reviewers, Explore, and Plan agents are read-only (no worktree needed).
+Single agent + subagent dispatch. The lead agent reads the board and dispatches subagents for implementation, dual-gate verification, exploration, and planning. Workers run in isolated worktrees. Reviewers, oracles, Explore, and Plan agents are read-only with respect to source (no worktree needed; oracles do write transcripts to `.agent-history/oracle/`).
 
-- **Orchestrator** (`_agents/rb-orchestrator.md`) — Reads the board, dispatches agents, acts on reviewer verdicts, merges. Never implements or reviews code directly. Uses opus.
+Verification is a dual gate: the **reviewer** reads the diff and judges code; the **oracle** drives the running system and judges behavior. They run in parallel with no knowledge of each other. Merge requires both to APPROVE.
+
+- **Orchestrator** (`_agents/rb-orchestrator.md`) — Reads the board, dispatches agents, combines reviewer + oracle verdicts, merges. Never implements or reviews code directly. Uses opus.
 - **Worker** (`_agents/rb-worker.md`) — Implements one card in an isolated git worktree. Uses sonnet. Workers rebase onto main before committing so the orchestrator can fast-forward merge.
-- **Reviewer** (`_agents/rb-reviewer.md`) — Reviews one worker's changes per dispatch. Uses sonnet. Classifies risk (green/yellow/red), runs verification, checks EARS specs against the code, and returns a structured verdict (approve/reject/escalate). Starts with a fresh context for structural independence from the worker's reasoning.
+- **Reviewer** (`_agents/rb-reviewer.md`) — Reviews one worker's changes per dispatch. Uses opus. Classifies risk (green/yellow/red), runs lint+tests, checks EARS specs against the code, returns APPROVE/REJECT/ESCALATE. Fresh context — structural independence from the worker's reasoning.
+- **Oracle** (`_agents/rb-oracle.md`) — Verifies behavior of one worker's changes per dispatch, in parallel with the reviewer. Uses opus. Classifies surface (terminal/browser/cli/library/none), drives the running system, observes whether asserted behaviors actually occur, persists a transcript to `.agent-history/oracle/<card-id>/`, returns APPROVE/REJECT/ESCALATE. Anti-sycophancy is the central design constraint — finding defects is the agent's success condition.
 - **Explore** (built-in `subagent_type: "Explore"`) — Read-only codebase research. Investigates unfamiliar code, traces call paths, scopes changes. Findings go into card descriptions or `.agent-history/`.
 - **Plan** (built-in `subagent_type: "Plan"`) — Architecture and design planning. Chooses approaches, designs module boundaries, writes implementation plans. Output enriches card descriptions so workers have clear scope.
 
 ### Workflow phases
 
 ```
-batch:      ASSESS -> DISPATCH -> REVIEW -> HUMAN APPROVAL -> MERGE
-autonomous: ASSESS -> DISPATCH -> REVIEW -> MERGE
+batch:      ASSESS -> DISPATCH -> REVIEW + ORACLE (parallel) -> HUMAN APPROVAL -> MERGE
+autonomous: ASSESS -> DISPATCH -> REVIEW + ORACLE (parallel) -> MERGE
 ```
+
+### Verdict combination
+
+```
+reviewer APPROVE + oracle APPROVE   -> merge
+reviewer REJECT  + oracle APPROVE   -> status=doing, claim preserved, same worker iterates with reviewer feedback
+reviewer *       + oracle REJECT    -> status=todo,  claim released,  next worker re-claims with oracle findings
+either ESCALATE                     -> pause for human input
+```
+
+Oracle REJECT outranks reviewer APPROVE: behavioral failure routes the card back to `todo` with the claim released, regardless of what the reviewer said. Reviewer-only REJECT keeps the card in `doing` for the same worker to iterate.
 
 ### Status flow
 
@@ -73,6 +87,7 @@ Agent definitions live in `_agents/` (git-tracked, source of truth). `ralph-ban 
 | `ralph-ban claude` loads plugin | `--plugin-dir .ralph-ban/plugin/` | `.ralph-ban/plugin/.claude-plugin/` | Loads hooks, settings, and plugin agents without user-level install |
 | Orchestrator dispatches worker | `Agent(subagent_type: "rb-worker")` | `.ralph-ban/plugin/agents/` | Agent tool resolves subagent types through plugin directories |
 | Orchestrator dispatches reviewer | `Agent(subagent_type: "rb-reviewer")` | `.ralph-ban/plugin/agents/` | Reviewer runs tests, reads diffs, returns structured verdict |
+| Orchestrator dispatches oracle | `Agent(subagent_type: "rb-oracle")` | `.ralph-ban/plugin/agents/` | Oracle drives the running system, observes behavior, persists transcript, returns structured verdict |
 | Plugin hooks run | (automatic) | `.ralph-ban/plugin/hooks/` | Hook runner finds hooks via the loaded plugin |
 | User runs `/rb-planning` | Plugin command discovery | `.ralph-ban/plugin/commands/` | Slash commands loaded from plugin directory |
 
