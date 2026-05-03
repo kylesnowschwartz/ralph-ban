@@ -501,15 +501,18 @@ func (f form) renderTypeRow(label, active lipgloss.Style) string {
 }
 
 func (f form) renderHint(faint lipgloss.Style) string {
-	hint := "↑↓/tab: navigate  enter: save  esc: cancel"
-	if f.focus == fieldDescription {
+	var hint string
+	switch f.focus {
+	case fieldDescription:
 		hint = "tab: next field  esc: cancel"
-	} else if f.focus == fieldSpecs {
+	case fieldSpecs:
 		if f.addingSpec {
 			hint = "enter: add  esc: cancel"
 		} else {
 			hint = "space: toggle  a: add  e: edit  d: remove  tab: next  enter: save"
 		}
+	default:
+		hint = "↑↓/tab: navigate  enter: save  esc: cancel"
 	}
 	return faint.Render(hint)
 }

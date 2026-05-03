@@ -102,7 +102,7 @@ func newBoard(store *beadslite.Store) *board {
 
 	isDark := true // safe default; overridden by BackgroundColorMsg
 	var cols [numColumns]column
-	for i := columnIndex(0); i < numColumns; i++ {
+	for i := range numColumns {
 		cols[i] = newColumn(i, isDark)
 		cols[i].wipLimit = wip.wipLimit(i)
 	}
@@ -527,7 +527,7 @@ func (b *board) applyRefresh(msg refreshMsg) {
 	}
 	b.cols[colDone].sortReversed = b.doneReversed
 
-	for i := columnIndex(0); i < numColumns; i++ {
+	for i := range numColumns {
 		items := buckets[i]
 		if items == nil {
 			items = []list.Item{}
@@ -567,7 +567,7 @@ func (b *board) handleMove(msg moveMsg) tea.Cmd {
 		if !msg.card.issue.AllSpecsChecked() {
 			checked, total := msg.card.issue.SpecProgress()
 			b.err = fmt.Errorf(
-				"Specs incomplete: all must be checked before Review (%d/%d)",
+				"specs incomplete: all must be checked before Review (%d/%d)",
 				checked, total,
 			)
 			return nil
@@ -1104,12 +1104,8 @@ func (b *board) visibleCount() int {
 		return int(numColumns)
 	}
 	count := b.termWidth / minColumnWidth
-	if count < 1 {
-		count = 1
-	}
-	if count > int(numColumns) {
-		count = int(numColumns)
-	}
+	count = max(count, 1)
+	count = min(count, int(numColumns))
 	return count
 }
 
@@ -1121,16 +1117,10 @@ func (b *board) visibleCountVertical() int {
 	}
 	// Reserve: 1 (top padding) + 1 (indicator) + 1 (footer) = 3 lines overhead
 	available := b.termHeight - 3
-	if available < minColumnBandHeight {
-		available = minColumnBandHeight
-	}
+	available = max(available, minColumnBandHeight)
 	count := available / minColumnBandHeight
-	if count < 1 {
-		count = 1
-	}
-	if count > int(numColumns) {
-		count = int(numColumns)
-	}
+	count = max(count, 1)
+	count = min(count, int(numColumns))
 	return count
 }
 
@@ -1183,10 +1173,7 @@ func (b *board) updatePan() {
 		b.panOffset = focusIdx - visible + 1
 	}
 	// Clamp
-	maxOffset := int(numColumns) - visible
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	maxOffset := max(int(numColumns)-visible, 0)
 	if b.panOffset > maxOffset {
 		b.panOffset = maxOffset
 	}
@@ -1208,10 +1195,7 @@ func (b *board) resizeColumns() {
 	}
 
 	// Reserve space for top padding, help bar, and position indicator.
-	colHeight := b.termHeight - 5
-	if colHeight < 5 {
-		colHeight = 5
-	}
+	colHeight := max(b.termHeight-5, 5)
 
 	// Decide which visible columns are collapsed.
 	// A column collapses when it has 0 items AND is not focused.
@@ -1246,9 +1230,7 @@ func (b *board) resizeColumns() {
 	var normalColWidth int
 	if normalCount > 0 {
 		normalColWidth = (remainingWidth / normalCount) - borderWidth
-		if normalColWidth < 1 {
-			normalColWidth = 1
-		}
+		normalColWidth = max(normalColWidth, 1)
 	}
 
 	for _, l := range layouts {
@@ -1273,14 +1255,9 @@ func (b *board) resizeColumnsVertical() {
 
 	// Reserve: 1 (top padding) + 1 (indicator) + 1 (footer) = 3 rows overhead
 	available := b.termHeight - 3
-	if available < minColumnBandHeight {
-		available = minColumnBandHeight
-	}
+	available = max(available, minColumnBandHeight)
 
-	bandHeight := available / visible
-	if bandHeight < minColumnBandHeight {
-		bandHeight = minColumnBandHeight
-	}
+	bandHeight := max(available/visible, minColumnBandHeight)
 
 	// Full terminal width minus border (2) for each band.
 	const borderWidth = 2
@@ -1334,7 +1311,7 @@ func (b *board) renderDotIndicator() string {
 
 // openSearch enters search mode: snapshot all column items and activate the input.
 func (b *board) openSearch() {
-	for i := columnIndex(0); i < numColumns; i++ {
+	for i := range numColumns {
 		b.allItems[i] = b.cols[i].list.Items()
 	}
 	b.searchInput.Reset()
@@ -1344,7 +1321,7 @@ func (b *board) openSearch() {
 
 // cancelSearch restores all columns to their pre-search item sets and exits search mode.
 func (b *board) cancelSearch() {
-	for i := columnIndex(0); i < numColumns; i++ {
+	for i := range numColumns {
 		b.cols[i].SetItems(b.allItems[i])
 	}
 	b.searchInput.Blur()
@@ -1355,7 +1332,7 @@ func (b *board) cancelSearch() {
 // Without the restore, filtered items persist for up to 2 seconds until the
 // next poll tick replaces them — a visible glitch.
 func (b *board) dismissSearch() {
-	for i := columnIndex(0); i < numColumns; i++ {
+	for i := range numColumns {
 		b.cols[i].SetItems(b.allItems[i])
 	}
 	b.searchInput.Blur()
@@ -1390,7 +1367,7 @@ func (b *board) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // applySearchFilter updates each column to show only items matching query.
 func (b *board) applySearchFilter(query string) {
-	for i := columnIndex(0); i < numColumns; i++ {
+	for i := range numColumns {
 		b.cols[i].SetItems(filterItems(b.allItems[i], query))
 	}
 }
@@ -1459,7 +1436,7 @@ func (b *board) applyActiveFilter() {
 		sortDoneByRecency(&buckets)
 	}
 
-	for i := columnIndex(0); i < numColumns; i++ {
+	for i := range numColumns {
 		items := buckets[i]
 		if items == nil {
 			items = []list.Item{}
@@ -1692,22 +1669,13 @@ func (b *board) zoomMetadata(width int) string {
 // syncZoomViewport creates or recreates the viewport with correct dimensions
 // and content. Called when opening zoom and on terminal resize.
 func (b *board) syncZoomViewport() {
-	panelWidth := b.termWidth - 8
-	if panelWidth < 40 {
-		panelWidth = 40
-	}
+	panelWidth := max(b.termWidth-8, 40)
 	innerWidth := panelWidth - 6 // border (2) + padding (2*2)
 
 	headerLines := 2
-	remainingHeight := b.termHeight - headerLines
-	if remainingHeight < 5 {
-		remainingHeight = 5
-	}
+	remainingHeight := max(b.termHeight-headerLines, 5)
 	// Viewport height: remaining space minus border (2) + padding (2).
-	vpHeight := remainingHeight - 4
-	if vpHeight < 1 {
-		vpHeight = 1
-	}
+	vpHeight := max(remainingHeight-4, 1)
 
 	vp := viewport.New(viewport.WithWidth(innerWidth), viewport.WithHeight(vpHeight))
 	// SoftWrap is intentionally off. The content is pre-formatted at
@@ -1747,10 +1715,7 @@ func (b *board) zoomView() string {
 	boardBg := b.viewContent()
 	b.view = viewZoom
 
-	panelWidth := b.termWidth - 8
-	if panelWidth < 40 {
-		panelWidth = 40
-	}
+	panelWidth := max(b.termWidth-8, 40)
 	innerWidth := panelWidth - 6
 
 	// Viewport content inside a bordered, padded panel.
@@ -1771,10 +1736,7 @@ func (b *board) zoomView() string {
 		pct := fmt.Sprintf("%d%%", int(b.zoom.vp.ScrollPercent()*100))
 		indicator := styleFaint().Render(pct)
 		// Right-align the indicator within the panel.
-		pad := innerWidth - lipgloss.Width(indicator)
-		if pad < 0 {
-			pad = 0
-		}
+		pad := max(innerWidth-lipgloss.Width(indicator), 0)
 		vpContent += "\n" + strings.Repeat(" ", pad) + indicator
 	}
 
@@ -1785,10 +1747,7 @@ func (b *board) zoomView() string {
 	if len(bgLines) > headerLines {
 		header := strings.Join(bgLines[:headerLines], "\n")
 
-		remainingHeight := b.termHeight - headerLines
-		if remainingHeight < 5 {
-			remainingHeight = 5
-		}
+		remainingHeight := max(b.termHeight-headerLines, 5)
 
 		panelPlaced := lipgloss.Place(b.termWidth, remainingHeight,
 			lipgloss.Center, lipgloss.Center,

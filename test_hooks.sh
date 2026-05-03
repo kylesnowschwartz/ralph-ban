@@ -9,13 +9,22 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOOKS_DIR="$SCRIPT_DIR/hooks"
 
-# Use locally built bl — export so hook scripts see it via ${BL:-bl}
-BL="${BL:-/usr/local/bin/bl}"
-export BL
-if [ ! -x "$BL" ]; then
-  echo "Building beads-lite..."
-  (cd "$SCRIPT_DIR/../beads-lite" && go build -o "$BL" ./cmd/bl)
+# Prefer a freshly-built bl from sibling beads-lite source so tests track
+# current behavior, never a stale `/usr/local/bin/bl` left over from a
+# prior install. In worktrees or CI without the sibling clone, fall back
+# to the installed binary (which may be stale — flagged with a notice).
+if [ -z "${BL:-}" ]; then
+  if [ -d "$SCRIPT_DIR/../beads-lite" ]; then
+    BL="${TMPDIR:-/tmp}/ralph-ban-test-bin/bl"
+    mkdir -p "$(dirname "$BL")"
+    echo "Building beads-lite from source..."
+    (cd "$SCRIPT_DIR/../beads-lite" && go build -o "$BL" ./cmd/bl)
+  else
+    BL="/usr/local/bin/bl"
+    echo "Note: beads-lite source not at $SCRIPT_DIR/../beads-lite; using installed $BL (may be stale)"
+  fi
 fi
+export BL
 bl() { "$BL" "$@"; }
 
 PASS=0
@@ -97,7 +106,7 @@ assert_file_missing() {
   fi
 }
 
-# Invoke a hook that reads stdin (board-sync, stop-guard).
+# Invoke a hook that reads stdin (stop-guard).
 # Always closes stdin to prevent hangs.
 run_hook() { "$@" </dev/null 2>/dev/null || true; }
 
@@ -148,6 +157,7 @@ test_session_start_creates_snapshot() {
 test_board_state_read_board() {
   setup
   bl create "Read Test" >/dev/null
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   local board
   board=$(read_board)
@@ -163,6 +173,7 @@ test_board_state_count_active() {
   local doing_id
   doing_id=$(extract_id "$(bl create "Doing 1")")
   bl update "$doing_id" --status doing >/dev/null
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   local counts
   counts=$(count_active)
@@ -301,7 +312,7 @@ test_stop_guard_phase45_blocks_when_all_assignments_done() {
   id=$(extract_id "$(bl create "All Done")")
   bl update "$id" --status doing >/dev/null
   bl claim "$id" --role reviewer --agent rb-reviewer >/dev/null
-  bl agent-state "$id" --role reviewer --state done >/dev/null
+  bl agent-state "$id" --role reviewer --state "done" >/dev/null
   echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
 
   local out
@@ -450,6 +461,7 @@ test_stop_guard_allows_worker_no_claimed_cards() {
 test_stop_guard_stall_allows_after_max() {
   setup
   bl create "Stuck Task" >/dev/null
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   local hash
   hash=$(read_board_hash)
@@ -480,6 +492,7 @@ test_stop_guard_stall_safety_valve_autonomous() {
   setup
   bl create "Stuck Todo" >/dev/null
   echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   local hash
   hash=$(read_board_hash)
@@ -647,6 +660,7 @@ test_stop_guard_debounce_hash_cleared_on_allow() {
 
 test_cb_closed_below_threshold() {
   setup
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   cb_record_bounce "bl-test1" >/dev/null
   cb_record_bounce "bl-test1" >/dev/null
@@ -661,6 +675,7 @@ test_cb_closed_below_threshold() {
 
 test_cb_trips_at_threshold() {
   setup
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   cb_record_bounce "bl-test2" >/dev/null
   cb_record_bounce "bl-test2" >/dev/null
@@ -675,6 +690,7 @@ test_cb_trips_at_threshold() {
 
 test_cb_open_to_half_open_after_cooldown() {
   setup
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   local past
   past=$(($(date +%s) - 600))
@@ -689,6 +705,7 @@ test_cb_open_to_half_open_after_cooldown() {
 
 test_cb_stays_open_within_cooldown() {
   setup
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   local now
   now=$(date +%s)
@@ -703,6 +720,7 @@ test_cb_stays_open_within_cooldown() {
 
 test_cb_half_open_failure_reopens() {
   setup
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   local past
   past=$(($(date +%s) - 600))
@@ -720,6 +738,7 @@ test_cb_half_open_failure_reopens() {
 
 test_cb_success_resets() {
   setup
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   cb_record_bounce "bl-test6" >/dev/null
   cb_record_bounce "bl-test6" >/dev/null
@@ -735,6 +754,7 @@ test_cb_success_resets() {
 
 test_cb_missing_file_defaults_closed() {
   setup
+  # shellcheck source=hooks/lib/board-state.sh
   source "$HOOKS_DIR/lib/board-state.sh"
   rm -f "$CB_FILE"
   local state
