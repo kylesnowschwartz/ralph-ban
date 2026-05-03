@@ -76,8 +76,8 @@ exit 0
 # ================================================================
 # LOGIN FLOW: Uncomment and customize after discovery
 # ================================================================
-# : "${APP_USERNAME:?Set APP_USERNAME environment variable}"
-# : "${APP_PASSWORD:?Set APP_PASSWORD environment variable}"
+# if [ -z "${APP_USERNAME:-}" ]; then echo "Set APP_USERNAME environment variable" >&2; exit 1; fi
+# if [ -z "${APP_PASSWORD:-}" ]; then echo "Set APP_PASSWORD environment variable" >&2; exit 1; fi
 #
 # agent-browser open "$LOGIN_URL"
 # agent-browser wait --load networkidle
