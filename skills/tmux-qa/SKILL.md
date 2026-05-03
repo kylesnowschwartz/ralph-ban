@@ -6,7 +6,7 @@ argument-hint: "[scope of changes to verify]"
 
 # tmux-QA
 
-Verify that code changes work by driving an isolated tmux session — build, run, observe, report. This skill does not write code; it builds, runs, observes, and reports.
+Drive an isolated tmux session: build, run, observe, report.
 
 **Scope**: $ARGUMENTS
 
@@ -61,16 +61,16 @@ tmux send-keys -t "$TEST_SESSION" C-o           # ctrl+o
 tmux send-keys -t "$TEST_SESSION" Up Down Tab   # arrows, tab, etc.
 ```
 
-The sentinel reflects only the *foreground command list's* exit. It does *not* survive `cmd &` (background), `nohup`, daemonisers, or wrappers that fork-and-return — in those cases the sentinel fires when the wrapper returns, not when the asserted work finishes. For backgrounded work, wait on a different signal (a log line via `log-tail-qa`, a port becoming reachable, a DB row appearing) rather than the sentinel.
+The sentinel reflects only the *foreground* command's exit. It does not survive `cmd &`, `nohup`, daemonisers, or fork-and-return wrappers — in those cases wait on a different signal (a log line via `log-tail-qa`, a port becoming reachable, a DB row appearing).
 
-For multi-line input where each line should be typed (not pasted as a block — REPLs and editors often distinguish), send keys per line:
+For multi-line input where each line should be typed (REPLs and editors distinguish typing from paste), send keys per line:
 
 ```bash
 tmux send-keys -t "$TEST_SESSION" 'first line' Enter
 tmux send-keys -t "$TEST_SESSION" 'second line' Enter
 ```
 
-A single `send-keys` with embedded newlines may trigger bracketed-paste handling in some shells and editors, which is *not* the same as typing. When the spec asserts behaviour observable only when typed (autocomplete, debounced syntax-highlighting), key-by-key is the right primitive.
+Embedded newlines in a single `send-keys` can trigger bracketed-paste handling, which is not the same as typing. For specs that assert behaviour only observable when typed (autocomplete, debounced highlighting), key-by-key is correct.
 
 ### Reading output (the assertion primitive)
 
@@ -85,11 +85,11 @@ tmux capture-pane -t "$TEST_SESSION" -p -S -200
 tmux capture-pane -t "$TEST_SESSION" -p -a
 ```
 
-`capture-pane` includes the echoed command line itself. Assertions must be specific enough not to match the command — prefer patterns that appear only in the *output*, not the invocation.
+`capture-pane` includes the echoed command. Assertions must match patterns that appear only in the *output*, not the invocation.
 
-**Alternate-screen mode trap.** Programs like `vim`, `less`, `htop`, and most full-screen TUIs switch to the *alternate screen* on start and back to the main screen on exit. Without `-a`, `capture-pane` reads the screen the program is currently on, which is usually what you want; but if the spec asserts behaviour visible only on the alt-screen and the program has already exited, the alt-screen content is gone. Capture *during* the asserted state, not after.
+**Alternate-screen trap.** `vim`, `less`, `htop`, and most full-screen TUIs switch to an alternate screen on start. Without `-a`, alt-screen content is gone once the program exits. Capture *during* the asserted state, not after.
 
-**`TERM` divergence.** The default `TERM` inside a tmux pane is `screen` or `tmux-256color`, not `xterm-256color`. Some TUIs check `TERM` and refuse colour or alt-screen modes against unrecognised values. If the spec asserts colour output and the capture shows none, check whether the program saw the wrong `TERM` and either set `default-terminal` in tmux or `TERM=xterm-256color` for the asserted command.
+**`TERM` divergence.** Default `TERM` inside tmux is `screen` or `tmux-256color`. Some TUIs refuse colour or alt-screen modes against unrecognised values. Set `default-terminal` in tmux or `TERM=xterm-256color` for the asserted command if the capture shows no colour.
 
 ### Waiting for output
 

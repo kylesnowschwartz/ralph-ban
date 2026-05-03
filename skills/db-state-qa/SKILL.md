@@ -6,7 +6,9 @@ argument-hint: "[scope of the database side-effect to verify]"
 
 # db-state-QA
 
-Verify database side effects by snapshotting state, exercising the system, snapshotting again, and diffing structurally. This skill is *not* a primary surface in the Oracle's `kind:` taxonomy; it is a side-effect oracle invoked from `http-qa`, `cli-qa`, or `library-qa` when a card's spec asserts "after this action, the database shall ...".
+Snapshot DB state before the action, exercise the system, snapshot after, diff structurally. Side-effect oracle invoked from `http-qa`, `cli-qa`, or `library-qa` when a spec asserts "after this action, the database shall ...".
+
+The Oracle observes *live, committed* state. Unlike unit-test harnesses that wrap in transactions and roll back, the Oracle rolls nothing back.
 
 **Scope**: $ARGUMENTS
 
@@ -14,20 +16,10 @@ If no scope was provided, read the recent changeset to determine which tables, s
 
 ## Bundled Resources
 
-- `references/engine-specific.md` — introspection queries per engine (SQLite `sqlite_master`, Postgres `pg_catalog` and `information_schema`, MySQL), the WAL gotcha, advisory locks. Load when the spec asserts schema or constraint state.
-- `references/active-record.md` — Rails app-level state via `bin/rails runner`, including the autoload boundary and the difference between asserting on AR objects versus raw SQL. Load when the library under test is a Rails app.
+- `references/engine-specific.md` — introspection queries per engine (SQLite, Postgres, MySQL), WAL gotcha, advisory locks.
+- `references/active-record.md` — Rails app-level state via `bin/rails runner`, autoload boundary, AR vs raw SQL.
 
-## What makes this skill different from "DB testing"
-
-A db-state Oracle and a unit-test database harness solve different problems and use opposing tools. The unit-test harness wraps each test in a transaction and rolls back, or truncates tables between tests, or substitutes a mock — all to make the test *fast and isolated*. The Oracle does the opposite: it exercises *live, committed* state, observes whatever the action actually wrote, and rolls nothing back.
-
-The taxonomy in `database_cleaner`'s README (transaction / truncation / deletion strategies) is sound for unit tests; it is the *wrong* set of choices for an Oracle. Cite it as orientation, not as a tool to use.
-
-`samber/cc-skills-golang/skills/golang-database/references/testing.md` covers both mock-based unit tests and real-database integration tests; the mock-based half is what the Oracle's existence implicitly responds to (assertions on SQL strings rather than database rows leave room for the worker's bugs to slip through).
-
-## The workflow
-
-The spec asserts behaviour of the form *"after action X, the database shall be in state Y."* The Oracle's exercise is therefore three phases: snapshot before, perform X, snapshot after, compare.
+## Workflow
 
 1. Identify the database connection target (file path for SQLite, host/port/db for Postgres/MySQL, environment for Rails).
 2. **Snapshot before**: capture row counts, key rows, and schema state for the tables the spec names. Use `ORDER BY` on every multi-row query so the JSON output is deterministic. Persist to `before.json`.
@@ -62,36 +54,30 @@ jq -S 'walk(if type == "object" then del(.created_at, .updated_at, .id) else . e
 diff -u "$TXN/before.normalised.json" "$TXN/after.normalised.json" > "$TXN/diff.txt" || true
 ```
 
-The asserted change shows up in `diff.txt` as `+` lines for new rows and `-` lines for removed rows. Volatile fields are normalised away first so the diff is signal, not noise.
+The asserted change appears in `diff.txt` as `+` / `-` lines.
 
 ## Determinism: order matters
 
-A `SELECT * FROM widgets WHERE name='test'` that returns three rows can return them in any order between two snapshots — the diff will then show three `-` lines and three `+` lines for the same rows, just shuffled. Every multi-row query in a snapshot must include `ORDER BY` on a stable key (primary key, timestamp + id tiebreaker). For ActiveRecord, `Widget.order(:id)` everywhere; for raw SQL, `ORDER BY id ASC` everywhere. Without this, the diff lies.
+Two snapshots of the same rows in different orders produce a noisy diff. Every multi-row query needs `ORDER BY` on a stable key — `Widget.order(:id)` for AR, `ORDER BY id ASC` for raw SQL.
 
 ## Quiescence: when to snapshot after async work
 
-If the action's side effect is asynchronous, the immediate after-snapshot may run before the side effect lands. Common sources of asynchrony:
+If the side effect is asynchronous, the immediate after-snapshot may run before it lands. Common sources:
 
-- **`after_commit` callbacks** in Rails — fire after the transaction commits, which is after the controller returns.
-- **Queued jobs** (Sidekiq, Active Job, Resque) — the action enqueues; a worker dequeues and runs later.
+- **`after_commit` callbacks** — fire after transaction commits, after the controller returns.
+- **Queued jobs** (Sidekiq, Active Job, Resque) — action enqueues; worker runs later.
 - **Replicated writes** — primary commits, replica catches up after lag.
-- **Counter cache updates** — sometimes synchronous, sometimes deferred.
+- **Counter caches** — sometimes synchronous, sometimes deferred.
 
-Two disciplines depending on the source. For job-driven effects, drain the queue before snapshotting (`Sidekiq::Worker.drain` in tests; `bin/rails runner 'YourJob.drain'` for a one-shot, or wait on a job-completion log line via `log-tail-qa`). For `after_commit` and counter caches, the effect is usually settled by the time the controller's response reaches the client; snapshot immediately after the response. For replication, route the snapshot to the primary, not a replica.
+For job-driven effects, drain the queue (`Sidekiq::Worker.drain`, `bin/rails runner 'YourJob.drain'`, or wait on a completion log line via `log-tail-qa`). For `after_commit` and counter caches, the effect is settled by the time the response reaches the client. For replication, snapshot the primary.
 
-If the spec is silent on async-vs-sync and the action is observably async, the verdict is `could-not-determine` and the planner should specify the quiescence condition.
+If the spec is silent on async-vs-sync and the action is observably async, verdict is `could-not-determine`.
 
 ## Snapshotting state
 
-The minimum a snapshot needs:
+A snapshot captures: row count per relevant table; content of rows the spec names; schema state if the spec asserts schema. Snapshot only the tables the spec names — whole-DB dumps drown the asserted change in noise.
 
-- Row count per relevant table.
-- The full content of rows the spec names (lookup by primary key when known, by query when not).
-- Schema state if the spec asserts schema (column existence, index presence, constraint definitions).
-
-A snapshot does *not* dump the entire database — that produces a diff dominated by unrelated noise. Snapshot the tables the spec asserts on, plus tables the planner identified as adjacent.
-
-For SQLite (the engine ralph-ban uses):
+For SQLite:
 
 ```bash
 snapshot_state() {
@@ -112,42 +98,32 @@ For Rails, use `bin/rails runner` to print structured state in one pass; see `re
 
 ## Volatile-field normalisation
 
-Database side effects always introduce volatile fields. The standard set:
-
 | Field | Source | Why volatile |
 |---|---|---|
-| `id` | autoincrement / UUID | Different on every run; usually not asserted |
-| `created_at` / `updated_at` | timestamp on insert | Wall clock; never byte-equal across runs |
-| `*_token` / `*_secret` | random generation | Deliberately non-determinable |
-| `lock_version` | optimistic locking | Increments on every save |
+| `id` | autoincrement / UUID | Different per run |
+| `created_at` / `updated_at` | timestamp on insert | Wall clock |
+| `*_token` / `*_secret` | random generation | Non-determinable |
+| `lock_version` | optimistic locking | Increments on save |
 | `cached_*` | counter caches | Updates asynchronously |
 
-The `jq` walk in the workflow above is the normalisation primitive. Project-specific volatiles extend the list. The spec specifies which fields are *content* (asserted) versus which are *bookkeeping* (ignored); when the spec is silent, the Oracle defaults to ignoring the standard set above and notes this in the verdict.
+Project-specific volatiles extend the list. When the spec is silent, default to ignoring the standard set and note this in the verdict.
 
-## What the spec actually asserts
-
-The spec drives the diff. Three common shapes:
+## What the spec asserts
 
 | Spec asserts | Diff predicate |
 |---|---|
-| "shall persist a Widget with name=X" | a `+` line for a row matching `{name: "X", ...}` exists; row count for `widgets` increased by 1 |
-| "shall not modify the audit_log on read" | row count for `audit_log` unchanged; no `+` or `-` lines for that table |
-| "shall update the cached_count on add" | `cached_count` field on the parent row shows `+old, -new` with `new = old + 1` |
-| "shall add an index on widgets(slug)" | schema snapshot's index list includes `widgets_slug_idx` after; absent before |
+| "shall persist a Widget with name=X" | `+` row matching `{name: "X", ...}`; widgets count +1 |
+| "shall not modify audit_log on read" | audit_log count unchanged; no `+` / `-` for that table |
+| "shall update cached_count on add" | `cached_count` shows `+old, -new` with `new = old + 1` |
+| "shall add an index on widgets(slug)" | schema index list includes `widgets_slug_idx` after; absent before |
 
-A spec that does not name fields is too vague to verify; mark it `could-not-determine` in the verdict and surface the ambiguity to the planner.
+A spec that does not name fields is too vague; mark `could-not-determine` and surface the ambiguity to the planner.
 
 ## SQLite WAL gotcha
 
-This is the operational knowledge the research surfaced as non-obvious. SQLite in WAL mode (`PRAGMA journal_mode=WAL`) keeps writes in a sidecar `-wal` file until checkpointed; readers can see stale state if they connect before the writer commits. ralph-ban's database is in WAL mode.
+WAL mode keeps writes in a `-wal` sidecar until checkpointed. Long-lived connections opened before a writer commits see stale state due to SQLite's MVCC isolation — the diff shows nothing even when the action wrote a row.
 
-Symptoms:
-- The Oracle snapshots `before`, exercises the action, snapshots `after`, and the diff shows nothing — even though the action clearly should have written a row.
-- Re-running the snapshot a second after the action shows the row.
-
-Mechanism: the Oracle's snapshot connection was opened before the writer committed; SQLite's MVCC-flavoured isolation pins the connection's view of the database. Closing and reopening the connection between snapshots is the fix. The `sqlite3` shell already does this when invoked fresh per snapshot; the failure mode appears in long-lived probe processes that hold a single connection.
-
-Rule: **open a fresh connection per snapshot**. The cheapest is `sqlite3 "$DB_PATH" "..."` per snapshot — process boundary forces a fresh connection.
+Fix: open a fresh connection per snapshot. `sqlite3 "$DB_PATH" "..."` per snapshot crosses the process boundary and forces a fresh connection.
 
 ## Evidence capture
 
@@ -161,8 +137,6 @@ Save under `.agent-history/oracle/<card-id>/<timestamp>/`:
 - `after.normalised.json` — normalised
 - `diff.txt` — `diff -u` of the two normalised snapshots
 - `verdict.md` — APPROVE / REJECT / ESCALATE with the spec table filled in
-
-The `diff.txt` is the verdict's evidence column. A satisfied spec usually corresponds to a few `+` and `-` lines that match the spec's predicate.
 
 ## Rules
 

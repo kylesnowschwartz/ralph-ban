@@ -6,7 +6,7 @@ argument-hint: "[scope of the API change to verify]"
 
 # http-QA
 
-Verify HTTP behaviour by driving the running service — boot it, request it, observe the full response, judge whether what was observed matches what the card's specs asserted. This skill drives behaviour; it does not write code.
+Drive the running service: boot it, request it, observe the full response, judge against the spec.
 
 **Scope**: $ARGUMENTS
 
@@ -25,8 +25,6 @@ If no scope was provided, read the recent changeset to determine which routes, h
 9. Kill the server.
 
 ## Server Lifecycle
-
-The single most common failure of HTTP QA is racing the boot. A test that worked once because the laptop was warm is no test at all.
 
 ```bash
 SERVER_LOG="/tmp/qa-server-$$.log"
@@ -50,9 +48,9 @@ done
 [ "$ready" = 1 ] || { echo "server failed to become ready in 30s (see $SERVER_LOG)" >&2; exit 1; }
 ```
 
-Two non-default disciplines worth naming. First: poll on the condition you actually care about, not a guess about how long boot takes — the condition is "the endpoint under test responds," not "30 seconds have elapsed" (this is the lesson `obra/superpowers-skills/skills/testing/condition-based-waiting` encodes for in-process tests, retargeted to HTTP). Second: watch the server process itself with `kill -0`. A process that crashes during boot never opens the port and never responds; without the death check, the loop polls until timeout against a corpse, then runs the test against nothing. This is the load-bearing piece of `anthropics/skills/skills/webapp-testing/scripts/with_server.py` — a poll loop alone is not equivalent to the upstream pattern.
+Two disciplines: poll the condition (endpoint responds), not elapsed time. Watch the process with `kill -0` so a crashed boot fails fast instead of polling against a corpse.
 
-Replace `bin/rails server -p 3000` and `/up` with the project's start command and a route the spec under test does *not* depend on (e.g., `/healthz`, `/up`, `/`). Polling the route under test masks readiness behind whatever the test will assert.
+Replace `bin/rails server -p 3000` and `/up` with the project's start command and a route the spec does *not* depend on (`/healthz`, `/up`, `/`). Polling the route under test masks readiness behind the assertion.
 
 ## Driving the Endpoint
 
@@ -83,7 +81,7 @@ EOF
 
 ## Boundary Walk
 
-Lifted from `vercel/vercel-plugin/skills/verification`: name the boundaries the request crosses, and stop at the first broken one. A failure at boundary 1 makes assertions at boundary 3 meaningless.
+Name the boundaries the request crosses; stop at the first broken one. Failure at boundary N makes boundaries > N unassertable.
 
 | # | Boundary | Asserted by | Evidence file |
 |---|---|---|---|
@@ -97,13 +95,9 @@ If boundary 1 fails (curl error, connection refused), boundaries 2-5 are not ass
 
 ## Assertion Grammar
 
-`jq` is universal; lean on it for body shape. The vocabulary worth committing to memory lives in `references/assertion-grammar.md` — JSONPath-flavoured predicates over `body.json`, header presence/equality, status equality, timing under N ms. This is the non-obvious selector syntax a model would otherwise hallucinate.
-
-For richer assertion grammar, `Orange-OpenSource/hurl` ships a plain-text format with `jsonpath`, `xpath`, `header`, `duration`, and `regex` predicates as first-class. Cite it; do not require it.
+`jq` is universal; lean on it for body shape. See `references/assertion-grammar.md` for predicates over `body.json`, header equality, status, and timing. `Orange-OpenSource/hurl` ships richer first-class predicates (`jsonpath`, `xpath`, `header`, `duration`, `regex`) when present.
 
 ## Distinguishing Spec Violation from Flake
-
-This is the original judgment the Oracle contributes — no upstream skill encodes it.
 
 | Observation | Spec asserts what? | Verdict |
 |---|---|---|
@@ -129,8 +123,6 @@ Save artefacts under `.agent-history/oracle/<card-id>/<timestamp>/`:
 - `curl_stderr.txt` — connection errors live here; absence is significant
 - `assertions.log` — one line per asserted predicate, with `match` / `mismatch` / `could-not-determine`
 - `verdict.md` — APPROVE / REJECT / ESCALATE with the boundary-walk table filled in
-
-The transcript directory is the deliverable. Without it, the Oracle's APPROVE has no foundation.
 
 ## Rules
 

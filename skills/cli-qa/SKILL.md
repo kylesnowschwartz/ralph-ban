@@ -6,7 +6,7 @@ argument-hint: "[scope of the CLI change to verify]"
 
 # cli-QA
 
-Verify a command-line tool by driving the binary, capturing its three output channels separately, and comparing the captures against the asserted spec or a golden fixture. This skill drives behaviour; it does not write code.
+Drive the binary, capture stdout / stderr / exit separately, compare against the spec or a golden fixture.
 
 **Scope**: $ARGUMENTS
 
@@ -14,7 +14,7 @@ If no scope was provided, read the recent changeset to determine which subcomman
 
 ## Bundled Resources
 
-- `references/golden-files.md` — golden-file discipline: redaction of volatile fields (timestamps, PIDs, paths, widths, ANSI), the regenerate-on-purpose env-var idiom, when to compare structurally vs textually. Load when the spec asserts byte-equality against a fixture.
+- `references/golden-files.md` — golden-file redaction (timestamps, PIDs, paths, widths, ANSI) and regenerate-on-purpose idiom. Load when the spec asserts byte-equality against a fixture.
 
 ## Workflow
 
@@ -27,8 +27,6 @@ If no scope was provided, read the recent changeset to determine which subcomman
 
 ## Driving the binary
 
-The single most common QA mistake on CLIs is collapsing channels. The Oracle needs all three.
-
 ```bash
 TXN=.agent-history/oracle/$CARD_ID/$(date +%Y%m%dT%H%M%S)
 mkdir -p "$TXN"
@@ -40,13 +38,11 @@ mkdir -p "$TXN"
 echo "$?" > "$TXN/exit.txt"
 ```
 
-`echo $?` immediately after the command captures the exit code before any subsequent command can clobber it. A pipeline like `./bin/mytool | tee` swallows the exit code unless `set -o pipefail` is enabled — the Oracle's capture must not pipe.
+`echo $?` captures the exit before anything else clobbers it. Pipelines clobber `$?` unless `set -o pipefail`.
 
 ## Exit code conventions
 
-A CLI spec that says "shall fail" is incomplete; the Oracle reads it as "shall exit non-zero," which leaves the *which* non-zero unaddressed.
-
-The shell-level conventions (`126`, `127`, `128+N`) are POSIX-defined; `0` and any specific small non-zero code (`1`, `2`, etc.) are *program-defined* — different tools use them differently. `git` uses `1` for "merge conflict" and `128` for "fatal error"; `grep` uses `1` for "no match" (a non-error). The Oracle treats an exit code as a fact to record, not a category to interpret, unless the program documents its codes.
+`126`, `127`, `128+N` are POSIX-defined. `0`, `1`, `2` are *program-defined* and mean different things in different tools (`git` uses `1` for merge conflict; `grep` uses `1` for "no match"). Record the exit code as a fact; interpret only when the program documents its codes.
 
 | Code | Defined by | What it tells the Oracle |
 |---|---|---|
@@ -56,15 +52,15 @@ The shell-level conventions (`126`, `127`, `128+N`) are POSIX-defined; `0` and a
 | 127 | shell | command was not found — the binary was not built; halt the QA |
 | 128 + N | shell | the program was killed by signal N (e.g., 130 = 128 + SIGINT, 137 = 128 + SIGKILL) |
 
-If the card's spec is "shall exit non-zero on bad input," ask the planner which code, or note in the verdict that the spec is too vague to verify against a specific code.
+If the spec says "shall exit non-zero on bad input" without naming a code, mark `could-not-determine` and surface to the planner.
 
 ## Pipeline gotchas
 
-`2>&1` collapses stderr into stdout — after this, "what did the program write to stderr" is unanswerable. Keep them apart in the Oracle's capture. For multi-stage pipelines, `set -euo pipefail` at the top of the script makes failures in any stage propagate; without `pipefail`, only the last stage's exit is consulted.
+`2>&1` collapses stderr into stdout — after that, "what went to stderr" is unanswerable. For multi-stage pipelines, `set -euo pipefail` makes any-stage failures propagate; without it, only the last stage's exit is consulted.
 
 ## Environment that warps output
 
-CLIs check more than `isatty(1)` to decide what to print. The Oracle should fix the obvious env-var levers for reproducibility:
+CLIs check more than `isatty(1)`. Fix env-var levers for reproducibility:
 
 | Variable | Effect when unset / default | What to set for deterministic capture |
 |---|---|---|
@@ -80,13 +76,11 @@ CLIs check more than `isatty(1)` to decide what to print. The Oracle should fix 
 
 ## TTY-vs-pipe divergence
 
-Many CLIs check `isatty(1)` and change output: colours on for TTYs and off for pipes, progress bars only when interactive, paginated output through `less` only when stdout is a terminal. The Oracle's redirected captures are *pipes*, so the captured output is the non-TTY path.
+Many CLIs check `isatty(1)` and change output: colours, progress bars, pagination. The Oracle's redirected captures are pipes, so they record the non-TTY path. To assert TTY-only behaviour, force a PTY with `script`:
 
-When the spec asserts behaviour the program only emits on a TTY (e.g., "shall print a progress bar"), force a PTY with `script`. Note three caveats:
-
-- `script` does *not* preserve separate stdout and stderr; under a PTY both flow through the single terminal channel. A `2>` redirect on `script` captures `script`'s own stderr, not the program's. Pick: TTY mode (one merged transcript) *or* separate-channel mode (no PTY) — you cannot have both from `script` alone. For separate channels under a PTY, use a tool like `socat` or run the program twice.
-- The PTY transcript carries CR (`\r`), backspace, and other terminal control bytes the underlying program emits. Goldens against PTY output need an additional normalisation pass (`tr -d '\r'`, ANSI strip, control-byte filter).
-- `script` flag spelling differs by platform:
+- `script` merges stdout and stderr under the PTY — separate channels are not recoverable. Pick TTY mode *or* separate channels.
+- PTY transcripts carry `\r`, backspace, and ANSI control bytes; goldens need normalisation (`tr -d '\r'`, ANSI strip).
+- Flag spelling differs by platform:
 
 ```bash
 if [[ "$OSTYPE" == darwin* ]]; then
@@ -95,10 +89,7 @@ else
   script -q -c './bin/mytool subcommand' /dev/null > "$TXN/transcript.txt"
 fi
 echo "$?" > "$TXN/exit.txt"
-# transcript.txt contains merged stdout+stderr with terminal control bytes
 ```
-
-Capture the non-TTY path *and* the PTY transcript when both matter. The non-TTY path is what scripts and CI see; the PTY path is what humans see. The spec usually specifies one or the other.
 
 ## Signal-handling assertions
 
@@ -119,11 +110,11 @@ wait "$PID"; CODE=$?
 echo "$CODE" > "$TXN/exit.txt"
 ```
 
-If the binary handles SIGINT and exits cleanly with its own non-zero code, `wait` returns that code. If the binary does *not* handle SIGINT and the kernel terminates it, `wait` returns `130` (= 128 + SIGINT). Don't claim "expect 130" without naming which case you're testing — the spec must specify "shall exit 0 on SIGINT" or "shall exit 130 (uncaught SIGINT)" for the verdict to be unambiguous. The asserted behaviour is usually some combination of: the process exited, the exit code matches the spec, stderr printed a shutdown message, no orphan child processes remain.
+If the binary handles SIGINT and exits with its own code, `wait` returns that code. If it doesn't and the kernel kills it, `wait` returns `130` (= 128 + SIGINT). The spec must say which case ("shall exit 0 on SIGINT" or "shall exit 130 uncaught") for the verdict to be unambiguous.
 
 ## Golden-file comparison
 
-For commands whose output is large or structurally complex, compare against a fixture rather than asserting line-by-line. The discipline that makes golden files non-flaky is *redaction* — replacing volatile fields with stable placeholders before diff. See `references/golden-files.md` for the full pattern.
+For large or structurally complex output, compare against a fixture. Redaction (replacing volatiles with stable placeholders) is what makes golden files non-flaky. See `references/golden-files.md`.
 
 ```bash
 # Quick recipe: redact obvious volatiles, then diff
@@ -135,8 +126,6 @@ sed -E '
 
 diff -u testdata/expected.txt "$TXN/stdout.redacted.txt" > "$TXN/diff.txt" || true
 ```
-
-Redact, then diff. A diff over un-redacted output finds nothing but the volatile fields, every time.
 
 ## Evidence capture
 
@@ -151,17 +140,15 @@ Save artefacts under `.agent-history/oracle/<card-id>/<timestamp>/`:
 - `diff.txt` — output of `diff -u golden observed`, when applicable
 - `verdict.md` — APPROVE / REJECT / ESCALATE with the spec table filled in
 
-The transcript directory is the deliverable. The reviewer reads code; the Oracle reads these files.
-
 ## Side-effect assertions
 
-When the spec asserts effects beyond stdout/stderr/exit — a database row written, a log line emitted, a file created — the cli-qa skill covers the *invocation* half. Delegate the assertion half:
+When the spec asserts effects beyond stdout/stderr/exit, delegate:
 
-- Database state → `db-state-qa` skill (snapshot before, snapshot after, structural diff with volatile-field normalisation).
-- Log content → `log-tail-qa` skill (bounded wait for pattern with history/occurrence semantics).
-- File-system state → check structurally with `find` + `stat`; no dedicated skill yet.
+- Database → `db-state-qa` (snapshot before/after, structural diff).
+- Log content → `log-tail-qa` (bounded wait for pattern).
+- File-system → `find` + `stat`.
 
-Link the side-effect transcript from this skill's `verdict.md`.
+Link the side-effect transcript from `verdict.md`.
 
 ## Rules
 

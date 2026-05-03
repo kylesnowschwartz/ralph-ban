@@ -6,7 +6,7 @@ argument-hint: "[scope of changes to verify]"
 
 # browser-QA
 
-Verify that web changes work by driving a real browser — start the dev server, navigate, snapshot, interact, observe, capture evidence. This skill does not write code; it builds, runs, observes, and reports.
+Drive a real browser: start the dev server, navigate, snapshot, interact, observe, capture evidence.
 
 **Scope**: $ARGUMENTS
 
@@ -14,9 +14,7 @@ If no scope was provided, read the recent changeset to determine what needs veri
 
 ## Tool Detection
 
-Pick the browser driver before anything else. Both tools share the same conceptual model — open, snapshot for element refs, interact by ref, re-snapshot, capture — but the command grammars differ.
-
-There are three viable paths; check them in order.
+Three viable drivers; check in order.
 
 ```bash
 if [ -n "${MCP_CHROME_LOADED:-}" ] || command -v claude-mcp-chrome >/dev/null 2>&1; then
@@ -32,13 +30,13 @@ fi
 echo "Using driver: $DRIVER"
 ```
 
-The MCP path does not require either CLI binary; if the agent's session has the chrome-browser MCP loaded, the `mcp__claude-in-chrome__*` tools are the native interface and the rest of this skill's CLI examples translate to those tool calls. If you only have a CLI binary, the detection above falls through to that.
+If MCP is loaded, `mcp__claude-in-chrome__*` tools are the native interface and the CLI examples below translate to tool calls.
 
-**Driver-specific reference (load on demand):**
+**Driver-specific references (load on demand):**
 
-- `agent-browser` (preferred CLI — has `diff snapshot`, content-boundaries security, annotated screenshots, auth vault): `references/agent-browser/overview.md` plus the rest of `references/agent-browser/` for deep detail.
-- `playwright-cli` (fallback CLI): `references/playwright-cli/overview.md` plus the rest of `references/playwright-cli/`.
-- `chrome-browser` MCP (`mcp__claude-in-chrome__*`): no reference under this skill; the tool schemas load on demand via `ToolSearch`.
+- `agent-browser` (preferred CLI): `references/agent-browser/overview.md`.
+- `playwright-cli` (fallback CLI): `references/playwright-cli/overview.md`.
+- `chrome-browser` MCP: tool schemas load on demand via `ToolSearch`.
 
 ## Workflow
 
@@ -53,8 +51,6 @@ The MCP path does not require either CLI binary; if the agent's session has the 
 9. Report PASS / FAIL / PARTIAL with evidence.
 
 ## Server Lifecycle
-
-Web apps don't drive themselves. Most browser QA fails by skipping the readiness check, not by missing a click.
 
 ```bash
 SERVER_LOG="/tmp/qa-server-$$.log"
@@ -79,28 +75,35 @@ done
 [ "$ready" = 1 ] || { echo "dev server failed to become ready in 30s (see $SERVER_LOG)" >&2; exit 1; }
 ```
 
-Three operational details worth committing to memory. **Don't sleep-and-hope** — poll the actual URL. **Watch the process** with `kill -0` so a crash during boot is reported as a server-died failure, not a silent timeout against a corpse. **Don't trust the configured port** — Vite, Next.js, and others auto-bump (`5173 → 5174`, `3000 → 3001`) when their default is occupied; the bumped port appears only in the server log. If the spec asserts behaviour on a specific port, parse `$SERVER_LOG` for the actually-bound port before polling.
+Three operational details:
 
-Replace `npm run dev` and `5173` with project-specific commands and ports. For Rails: `bin/rails server -p 3000`. For Next.js: `npm run dev` (default port 3000). For Vite: `npm run dev` (default port 5173).
+- Poll the URL, don't sleep-and-hope.
+- Watch the process with `kill -0` so a crashed boot fails fast, not against a corpse.
+- Don't trust the configured port — Vite, Next.js, and others auto-bump (`5173 → 5174`, `3000 → 3001`) when occupied. Parse `$SERVER_LOG` for the bound port if the spec is port-sensitive.
+
+Replace `npm run dev` and `5173` with the project's command and port (Rails: `bin/rails server -p 3000`; Next.js: 3000; Vite: 5173).
 
 ## Browser Workflow Pattern
 
-Both drivers follow the same logical shape. The reference files document exact syntax for each.
+Both drivers share this shape; references document exact syntax.
 
 ```
 $DRIVER open <url>            # navigate
 # wait for SPA hydration:
 #   agent-browser: $DRIVER wait --load networkidle
 #   playwright-cli: see references/playwright-cli/overview.md
-$DRIVER snapshot              # capture accessibility tree, get element refs (agent-browser uses @e1, playwright-cli uses e1)
-# inspect snapshot output, identify the ref you need
+$DRIVER snapshot              # accessibility tree + element refs (agent-browser @e1, playwright-cli e1)
 $DRIVER click <ref>           # interact
-$DRIVER snapshot              # RE-snapshot — refs invalidate after every action, not only navigation
+$DRIVER snapshot              # RE-snapshot — refs invalidate
 $DRIVER screenshot <path>     # evidence
 $DRIVER close
 ```
 
-Three subtleties worth naming. **Refs invalidate on more than navigation.** Modal opens, client-side rerenders, infinite-scroll pagination, optimistic-update revert — none change the URL, all invalidate refs. The rule is "re-snapshot after any action that may change the DOM," which is most actions. **`networkidle` does not fire for websocket/SSE/long-polling apps.** A page that holds an open connection never reaches network-idle; the wait will time out. For such apps, wait on a *UI* condition (an element appears, a class changes) rather than a network condition. **The accessibility tree is the assertion source, not the screenshot.** Screenshots are useful evidence but a 1-pixel diff is not a defect; the spec lives in the a11y tree, which is text-based and stable across rendering quirks.
+Three subtleties:
+
+- **Refs invalidate on any DOM change**, not only navigation. Modals, client rerenders, infinite scroll, optimistic-update revert all invalidate. Re-snapshot after any action that may mutate the DOM.
+- **`networkidle` does not fire** for websocket / SSE / long-polling apps; the wait times out. Wait on a UI condition (element appears, class changes) instead.
+- **Assert against the accessibility tree, not the screenshot.** A 1-pixel diff is not a defect; the a11y tree is text-based and stable.
 
 ## Evidence Capture for the Oracle
 
@@ -111,9 +114,7 @@ Save artefacts under `.agent-history/oracle/<card-id>/<timestamp>/`:
 - `snapshot-before.txt` — accessibility tree before
 - `snapshot-after.txt` — accessibility tree after
 - `console.log` — console messages captured during the flow
-- `diff.txt` — for `agent-browser`, run `agent-browser diff snapshot` after the action; for `playwright-cli`, capture before/after snapshots and run `diff` against them
-
-The transcript directory is the Oracle's proof-of-work. An `APPROVE` verdict without a transcript is the failure mode the Oracle exists to prevent.
+- `diff.txt` — `agent-browser diff snapshot` after the action; for `playwright-cli`, `diff` the captured before/after snapshots
 
 ## Rules
 

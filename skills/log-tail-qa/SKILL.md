@@ -6,27 +6,19 @@ argument-hint: "[scope of the log-emitted behaviour to verify]"
 
 # log-tail-QA
 
-Verify behaviour observable only in a log file by tailing the log under bounded waiting, asserting pattern presence, and recording the surrounding context as evidence. This skill is *not* a primary surface in the Oracle's `kind:` taxonomy; it is a side-effect oracle invoked from `http-qa`, `cli-qa`, or `library-qa` when a card's spec asserts "after this action, a log line shall appear matching ...".
+Tail a log under bounded waiting, assert pattern presence, record surrounding context. Side-effect oracle invoked from `http-qa`, `cli-qa`, or `library-qa` when a spec asserts "after this action, a log line shall appear matching ...".
 
 **Scope**: $ARGUMENTS
 
 If no scope was provided, read the recent changeset to determine which log-emitting paths the change touches.
 
-## Why this skill exists
+## Three behaviours bash idioms typically miss
 
-Some behaviours are observable only through a log: an async job acknowledging receipt, a background worker reporting progress, an audit trail recording a privileged operation. The action under test runs synchronously; the log line appears later, sometimes much later, sometimes only on a different process's stdout that is being multiplexed into a file.
+**History inclusion.** The asserted line may already exist when watching starts, or appear fresh. `tail -n +1 -F` includes existing content; `tail -n 0 -F` skips it.
 
-The naive bash idiom — `tail -f file | grep PATTERN` — is wrong in three ways. It can hang forever (no timeout). It races log rotation (`-f` does not re-open). It does not say whether the pattern's absence means "not yet" or "never." This skill encodes the discipline that the testcontainers projects have already learned and ported into shell.
+**Occurrence count.** "Shall log 3 times" is satisfied by 3 matches, not 1. `grep -m1` exits at the first match and cannot count higher; use an awk accumulator.
 
-The corpus lifted here is `testcontainers/testcontainers-go/wait/log.go` and `testcontainers/testcontainers-java/.../LogMessageWaitStrategy.java` (both MIT). They encode three behaviours that bash idioms typically miss; this skill ports them.
-
-## The three lifted behaviours
-
-**1. History inclusion as an explicit knob.** The asserted line may already exist when watching starts (the action wrote it before the watcher attached) or it may be appended fresh. Treating these the same hides bugs. Testcontainers names this `withSince(0)`; in bash, `tail -n +1 -F` includes existing content, `tail -n 0 -F` skips it.
-
-**2. Occurrence count.** A spec asserting "shall log 3 times" is satisfied by 3 matches, not 1. Testcontainers names this `withTimes(N)`; `grep -m1` exits at the first match and cannot count higher. The bash form is an awk accumulator that exits when the count threshold is reached.
-
-**3. No-progress fail-fast.** If the log file stops growing entirely and the pattern has not matched, waiting longer is futile. Testcontainers tracks `lastLen` and fails the wait when both conditions hold: file size unchanged across N polls, and the latest check still mismatches. The bash equivalent is `stat -c %s` (Linux) / `stat -f %z` (macOS) between polls.
+**No-progress fail-fast.** If the file stops growing and the pattern still does not match, waiting longer is futile. Stat the size between polls (`stat -c %s` Linux, `stat -f %z` macOS); fail when size is unchanged across N polls.
 
 ## Workflow
 
@@ -70,7 +62,7 @@ else
 fi
 ```
 
-The non-obvious detail: `$?` after a pipeline returns the *last* command's exit code (here, `grep`'s) — not the timeout's. A naive `RC=$?; [ $RC = 124 ]` will never see the 124, because if `timeout` killed `tail` the pipe broke cleanly and `grep -m1` exited 1 (no match). Read `PIPESTATUS[0]` for `tail | timeout`'s exit and `PIPESTATUS[1]` for `grep`'s. `124` is the standard "timed out" sentinel; both BSD `gtimeout` (from coreutils) and GNU `timeout` use it.
+`$?` after a pipeline returns grep's exit, not timeout's — `PIPESTATUS[0]` gives tail/timeout, `[1]` gives grep. `124` is the standard timed-out sentinel for both `timeout` and `gtimeout`.
 
 ### Bounded wait for N occurrences
 
@@ -87,7 +79,7 @@ wait_for_n() {
 }
 ```
 
-This counts matching *lines*, not occurrences-within-a-line. The Testcontainers Go reference (`testcontainers/testcontainers-go/wait/log.go`) counts byte-occurrences for plain text via `bytes.Count` — so the pattern `foo` in a single line containing `foofoo` counts as 2 there but as 1 here. For most log assertions (one structured event per line), the line-counting form is what you want; if the spec genuinely asserts "shall log the substring `foo` 5 times" and those occurrences may share a line, replace the awk with `grep -oE "$pattern" | wc -l` against a captured snapshot.
+Counts matching *lines*, not occurrences within a line. If the spec asserts substring count where occurrences may share a line, replace awk with `grep -oE "$pattern" | wc -l` against a captured snapshot.
 
 ### No-progress fail-fast
 
@@ -137,57 +129,47 @@ wait_with_progress_check() {
 }
 ```
 
-This is *more lenient* than the Testcontainers Go reference (`wait/log.go:186-189`), which fails on the very first poll where size is unchanged AND the check still mismatches. Two reasons to relax: shell `stat` polls are coarser than in-process file-handle observation, and a JIT-flushed log may produce one or two repeat-size polls during normal operation. `stall_polls=5` (≈2.5s at 0.5s interval) is a deliberate widening; lower it to `1` if you want strict parity with the upstream semantics.
-
-Three return codes: `0` matched, `1` time budget exhausted, `2` file stopped growing. The Oracle's verdict reads `2` as "the system stopped writing logs entirely" — usually the action crashed, sometimes the log rotated to a path the watcher does not follow.
+Return codes: `0` matched, `1` timed out, `2` file stopped growing (action crashed, or log rotated to an unfollowed path). `stall_polls=5` (≈2.5s) tolerates one or two repeat-size polls during normal JIT flushing; lower it for stricter behaviour.
 
 ## tail flag survey
 
-The flags matter; getting them wrong silently produces wrong answers.
-
 | Flag | Means | When |
 |---|---|---|
-| `-f` | follow appends; *does not* re-open on rename/truncate | only if you control the writer and rotation will not happen |
-| `-F` | follow appends *and* re-open on rotation | the default for the Oracle |
-| `-n 0` | skip existing content; only follow new appends | when the action writes after the watcher attaches |
-| `-n +1` | include from line 1; follow new appends | when the action may have already written |
-| `--retry` (GNU) | keep trying when the file does not yet exist | when the file is created by the action itself |
-
-For files written by long-running services, `-F` is the right default. For files written by a short-lived process the Oracle started, `-n +1 -F` covers both "it wrote before tail attached" and "it wrote during tail."
+| `-f` | follow appends; does *not* re-open on rename/truncate | only if no rotation can happen |
+| `-F` | follow appends *and* re-open on rotation | default for the Oracle |
+| `-n 0` | skip existing; follow new appends | action writes after watcher attaches |
+| `-n +1` | include from line 1; follow new appends | action may have already written |
+| `--retry` (GNU) | keep trying when file does not exist yet | action creates the file |
 
 ## Buffering
 
-Two failure modes look the same to a casual reader but need different fixes. *"Not visible until exit"*: the program has line-buffered stdout when interactive, full-buffered when piped — the asserted line lives in a buffer that flushes at clean exit. *"Never flushed"*: the program crashed mid-write or refuses to flush at all; the buffer is lost. The first is fixable with the table below; the second is a finding.
+If the line never appears, the program may be full-buffering its stdout on a pipe. Force line-buffering at the writer:
 
-| Tool | What it actually does |
+| Tool | Behaviour |
 |---|---|
-| `stdbuf -o0 -e0 cmd` | sets stdio buffering mode to *unbuffered* (GNU coreutils only; not on macOS by default) |
-| `stdbuf -oL -eL cmd` | sets stdio buffering mode to *line-buffered* (usually what you want for log assertions) |
-| `unbuffer cmd` | runs the program under a PTY (from `expect`) — the program sees a TTY and chooses line buffering itself |
-| `script -q /dev/null cmd` | same idea via `script` |
+| `stdbuf -o0 -e0 cmd` | unbuffered (GNU coreutils; not macOS default) |
+| `stdbuf -oL -eL cmd` | line-buffered (usually what you want) |
+| `unbuffer cmd` (`expect`) | runs under a PTY; program sees TTY and chooses line buffering |
+| `script -q /dev/null cmd` | same effect via `script` |
 
-`unbuffer` and `script` work because most programs use line buffering on TTYs and full buffering on pipes; presenting a fake TTY flips the program's own choice. `stdbuf` works by overriding the stdio default at process start; programs that explicitly call `setvbuf` ignore it.
+`stdbuf` overrides the stdio default; programs that explicitly call `setvbuf` ignore it.
 
-The Oracle's bounded-wait works with whatever the program produces; if the assertion is failing because the program buffered, the test is observing buffering, not behaviour. Wrap the writer in one of the above when the spec depends on lines emitted *during* execution rather than only at exit.
+## Multi-line and structured logs
 
-## Multi-line and structured log entries
+`grep` matches per line; patterns spanning lines do not match.
 
-JSON-structured logs and stack traces span multiple physical lines. `grep` matches per line; a pattern that spans lines does not match.
-
-For JSON: normalise to one entry per line with `jq -c`, but check `jq`'s exit code — `jq -c .` over a file with non-JSON lines produces a partial conversion and a non-zero exit, and a casual `2>/dev/null` swallows the failure silently:
+For JSON, normalise with `jq -c` and check its exit (a casual `2>/dev/null` hides partial-conversion failures):
 
 ```bash
 if ! jq -c . "$LOG" > "$TXN/log.ndjson" 2> "$TXN/jq_errors.txt"; then
-  echo "WARN: log contains non-JSON lines; partial conversion in log.ndjson, errors in jq_errors.txt" >&2
+  echo "WARN: log contains non-JSON lines; partial conversion in log.ndjson" >&2
 fi
 grep -E '"event":"widget_created"' "$TXN/log.ndjson"
 ```
 
-For mixed-structure logs (JSON intermixed with plain text), `jq -c -R 'fromjson? // empty'` on each line filters to only the parseable entries; non-JSON lines are dropped without erroring.
+For mixed JSON/text, `jq -c -R 'fromjson? // empty'` filters to parseable entries.
 
-For stack traces (multi-line plaintext): grep with `-A N` (after-context) and `-B N` (before-context) to capture the surrounding frame; or use `awk` with a multi-line state machine.
-
-The asserted *content* drives the technique: a structured log with a stable schema is best asserted via `jq` predicates; an unstructured log is best asserted with `grep -E` and context flags.
+For stack traces, `grep -A N -B N` captures surrounding frames; or use an `awk` state machine.
 
 ## Evidence capture
 
@@ -196,11 +178,9 @@ Save under `.agent-history/oracle/<card-id>/<timestamp>/`:
 - `log.path.txt` — single line: the absolute path of the log being watched
 - `pattern.txt` — single line: the asserted regex pattern
 - `match.txt` — the matched lines (may be empty if timeout or no-progress)
-- `tail-context.txt` — last 200 lines of the log at the moment of verdict, regardless of match
-- `exit.txt` — single line: 0 / 1 / 2 / other (from the bash helpers above)
+- `tail-context.txt` — last 200 lines at the moment of verdict, regardless of match (shows what *else* the system was doing)
+- `exit.txt` — `0` / `1` / `2` / other (from the helpers above)
 - `verdict.md` — APPROVE / REJECT / ESCALATE with the spec table filled in
-
-The `tail-context.txt` is non-obvious. Even when the assertion succeeds, the surrounding 200 lines tell the verdict reader what *else* the system was doing — useful when the assertion is a one-line confirmation and the interesting story is in the 30 lines around it.
 
 ## Rules
 
