@@ -1,7 +1,7 @@
 ---
 name: rb-worker
 description: Implement a board card in a worktree. Spawned by orchestrator for parallel execution.
-model: sonnet
+model: opus
 color: green
 isolation: worktree
 permissionMode: bypassPermissions

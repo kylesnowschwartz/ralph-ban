@@ -1,6 +1,6 @@
 {
   "name": "ralph-ban",
-  "version": "0.1.0",
+  "version": "0.12.0",
   "description": "Kanban board agent orchestration — hooks, roles, and lifecycle management for Claude Code sessions",
   "author": {
     "name": "kylesnowschwartz"

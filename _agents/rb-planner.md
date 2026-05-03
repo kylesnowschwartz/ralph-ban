@@ -1,7 +1,7 @@
 ---
 name: rb-planner
 description: Plan and decompose work into board cards. Launched via ralph-ban claude --plan.
-model: claude-opus-4-6[1m]
+model: opus
 color: magenta
 initialPrompt: >-
   Read the board state with `bl ready` and `bl list --status backlog`.

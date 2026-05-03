@@ -1,6 +1,6 @@
 {
   "name": "ralph-ban",
-  "version": "0.1.0",
+  "version": "0.12.0",
   "description": "Kanban board TUI with agent orchestration for Claude Code",
   "owner": {
     "name": "Kyle Snow Schwartz",
@@ -14,7 +14,7 @@
       "name": "ralph-ban",
       "source": "./",
       "description": "Go TUI kanban board backed by beads-lite — hooks, agents, and lifecycle management for Claude Code sessions",
-      "version": "0.1.0",
+      "version": "0.12.0",
       "author": {
         "name": "Kyle Snow Schwartz"
       },
