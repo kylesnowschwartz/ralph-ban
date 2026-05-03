@@ -7,7 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.0
 	charm.land/lipgloss/v2 v2.0.0
 	github.com/charmbracelet/x/ansi v0.11.6
-	github.com/kylesnowschwartz/beads-lite v1.6.0
+	github.com/kylesnowschwartz/beads-lite v1.7.0
 )
 
 require (

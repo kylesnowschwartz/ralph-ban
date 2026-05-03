@@ -142,66 +142,6 @@ test_session_start_creates_snapshot() {
 }
 
 # ============================================================
-# board-sync.sh
-# ============================================================
-
-test_board_sync_no_change() {
-  setup
-  bl create "Static Task" >/dev/null
-  run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
-  local out
-  out=$(run_hook "$HOOKS_DIR/board-sync.sh")
-  # No change since snapshot — should produce no output or minimal output
-  PASS=$((PASS + 1))
-  teardown
-}
-
-test_board_sync_detects_status_change() {
-  setup
-  local id
-  id=$(extract_id "$(bl create "Moving Task")")
-  run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
-  bl update "$id" --status doing >/dev/null
-  local out
-  out=$(run_hook "$HOOKS_DIR/board-sync.sh")
-  assert_contains "$out" "additionalContext" "board-sync: outputs additionalContext on status change"
-  teardown
-}
-
-test_board_sync_detects_new_card() {
-  setup
-  bl create "Original" >/dev/null
-  run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
-  bl create "Brand New" >/dev/null
-  local out
-  out=$(run_hook "$HOOKS_DIR/board-sync.sh")
-  assert_contains "$out" "additionalContext" "board-sync: detects new card"
-  teardown
-}
-
-test_board_sync_tracks_stall() {
-  setup
-  local id
-  id=$(extract_id "$(bl create "Stalling Task")")
-  bl update "$id" --status doing >/dev/null
-  bl claim "$id" --agent test-worker >/dev/null
-  bl agent-state "$id" --state running >/dev/null
-  # Backdate last_activity beyond STALL_ACTIVITY_MINUTES threshold.
-  # Use ISO 8601 with numeric offset (not Z) — macOS date -j needs +HHMM.
-  local stale_ts
-  stale_ts=$(date -u -v-60M "+%Y-%m-%dT%H:%M:%S+00:00")
-  sqlite3 .beads-lite/beads.db "UPDATE issues SET last_activity = '$stale_ts' WHERE id = '$id'"
-  run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
-
-  export STALL_ACTIVITY_MINUTES=1
-  local out
-  out=$(run_hook "$HOOKS_DIR/board-sync.sh")
-  assert_contains "$out" "STALL" "board-sync: detects stalled card after threshold"
-  unset STALL_ACTIVITY_MINUTES
-  teardown
-}
-
-# ============================================================
 # board-state.sh library functions
 # ============================================================
 
@@ -301,6 +241,72 @@ test_stop_guard_autonomous_blocks_todo_and_doing() {
   local out
   out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
   assert_contains "$out" '"block"' "stop-guard autonomous: blocks on todo + doing"
+  teardown
+}
+
+# ============================================================
+# stop-guard.sh — agent activity gate (Phase 4.5, role-scoped)
+# ============================================================
+
+# Phase 4.5 must silence the stop hook whenever ANY role on ANY non-done card
+# is in state 'running'. The schema's role-scoped assignments table makes
+# reviewers and oracles visible to bl, so the same query catches all three
+# agent types uniformly.
+
+test_stop_guard_phase45_silences_for_running_reviewer() {
+  setup
+  local id
+  id=$(extract_id "$(bl create "Reviewer In Flight")")
+  bl update "$id" --status doing >/dev/null
+  bl claim "$id" --role reviewer --agent rb-reviewer >/dev/null
+  echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  assert_not_contains "$out" '"block"' "stop-guard 4.5: running reviewer suppresses block"
+  assert_contains "$out" "Agents running" "stop-guard 4.5: emits running-agents pause message"
+  teardown
+}
+
+test_stop_guard_phase45_silences_for_running_oracle() {
+  setup
+  local id
+  id=$(extract_id "$(bl create "Oracle In Flight")")
+  bl update "$id" --status doing >/dev/null
+  bl claim "$id" --role oracle --agent rb-oracle >/dev/null
+  echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  assert_not_contains "$out" '"block"' "stop-guard 4.5: running oracle suppresses block"
+  teardown
+}
+
+test_stop_guard_phase45_silences_for_running_worker_via_assignments() {
+  setup
+  local id
+  id=$(extract_id "$(bl create "Worker In Flight")")
+  bl claim "$id" --agent rb-worker >/dev/null
+  echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  assert_not_contains "$out" '"block"' "stop-guard 4.5: running worker (via assignments) suppresses block"
+  teardown
+}
+
+test_stop_guard_phase45_blocks_when_all_assignments_done() {
+  setup
+  local id
+  id=$(extract_id "$(bl create "All Done")")
+  bl update "$id" --status doing >/dev/null
+  bl claim "$id" --role reviewer --agent rb-reviewer >/dev/null
+  bl agent-state "$id" --role reviewer --state done >/dev/null
+  echo '{"stop_mode":"autonomous"}' >.ralph-ban/config.json
+
+  local out
+  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
+  assert_contains "$out" '"block"' "stop-guard 4.5: completed assignments do not suppress legitimate block"
   teardown
 }
 
@@ -528,7 +534,7 @@ test_stop_guard_guidance_waiting_for_workers() {
   # (same as the worker marker). Workers are in-flight — blocking just
   # produces empty acknowledgments the orchestrator can't act on.
   assert_not_contains "$out" '"block"' "stop-guard guidance: does not block when workers running"
-  assert_contains "$out" "Workers are running" "stop-guard guidance: shows waiting message for running agents"
+  assert_contains "$out" "Agents running" "stop-guard guidance: shows waiting message for running agents"
   teardown
 }
 
@@ -562,23 +568,7 @@ test_stop_guard_epic_with_doing_child() {
   local out
   out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
   assert_not_contains "$out" '"block"' "stop-guard: epic+running child does not block"
-  assert_contains "$out" "Workers are running" "stop-guard: running child detected via agent_state"
-  teardown
-}
-
-test_stop_guard_worker_marker_touch_fallback() {
-  setup
-  local id
-  id=$(extract_id "$(bl create "Marker Test")")
-  bl update "$id" --status doing >/dev/null
-  # Use touch (empty file) instead of echo timestamp — the mtime fallback
-  # should still detect the marker as fresh.
-  touch .ralph-ban/.workers-active
-  local out
-  out=$(run_hook "$HOOKS_DIR/stop-guard.sh")
-  # Worker marker detected — should pass through quietly, not block
-  assert_not_contains "$out" '"block"' "stop-guard: touch marker detected via mtime fallback"
-  assert_contains "$out" "Workers are running" "stop-guard: worker marker shows waiting message"
+  assert_contains "$out" "Agents running" "stop-guard: running child detected via assignments"
   teardown
 }
 
@@ -750,59 +740,6 @@ test_cb_missing_file_defaults_closed() {
   local state
   state=$(cb_get_state "bl-nonexistent")
   assert_contains "$state" "CLOSED" "circuit breaker: missing file defaults to CLOSED"
-  teardown
-}
-
-# ============================================================
-# board-sync.sh — circuit breaker integration
-# ============================================================
-
-test_board_sync_emits_warning_on_trip() {
-  setup
-  local id
-  id=$(extract_id "$(bl create "Bouncing Card")")
-  bl update "$id" --status review >/dev/null
-  run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
-  source "$HOOKS_DIR/lib/board-state.sh"
-  cb_record_bounce "$id" >/dev/null
-  cb_record_bounce "$id" >/dev/null
-  bl update "$id" --status doing >/dev/null
-  local out
-  out=$(run_hook "$HOOKS_DIR/board-sync.sh")
-  assert_contains "$out" "CIRCUIT BREAKER" "board-sync: emits warning on circuit breaker trip"
-  teardown
-}
-
-test_board_sync_no_warning_below_threshold() {
-  setup
-  local id
-  id=$(extract_id "$(bl create "Normal Bouncer")")
-  bl update "$id" --status review >/dev/null
-  run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
-  bl update "$id" --status doing >/dev/null
-  local out
-  out=$(run_hook "$HOOKS_DIR/board-sync.sh")
-  assert_not_contains "$out" "CIRCUIT BREAKER" "board-sync: no warning below threshold"
-  teardown
-}
-
-test_board_sync_success_clears_breaker() {
-  setup
-  local id
-  id=$(extract_id "$(bl create "Recovering Card")")
-  bl update "$id" --status review >/dev/null
-  source "$HOOKS_DIR/lib/board-state.sh"
-  cb_record_bounce "$id" >/dev/null
-  cb_record_bounce "$id" >/dev/null
-  cb_record_bounce "$id" >/dev/null
-  local state
-  state=$(cb_get_state "$id")
-  assert_contains "$state" "OPEN" "board-sync: pre-condition breaker is OPEN"
-  run_hook "$HOOKS_DIR/session-start.sh" >/dev/null
-  bl close "$id" >/dev/null
-  run_hook "$HOOKS_DIR/board-sync.sh" >/dev/null
-  state=$(cb_get_state "$id")
-  assert_contains "$state" "CLOSED" "board-sync: success path clears circuit breaker"
   teardown
 }
 

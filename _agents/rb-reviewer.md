@@ -16,6 +16,14 @@ The User has full TTY access and can interact with you for clarification.
 The orchestrator dispatches you with: card ID, branch name, merge base SHA, card specs,
 and modified files. You discover everything else by reading the codebase.
 
+0. REGISTER YOUR ROLE. Run `bl claim <card-id> --role reviewer --agent rb-reviewer`
+   first. This writes a row to the assignments table so the orchestrator's stop
+   hook can see a reviewer is in flight on this card and pause silently rather
+   than nudging the orchestrator to do more work. If the claim fails because
+   another reviewer is already live on the card, surface that as ESCALATE — two
+   parallel reviewers on the same card is a dispatch bug. If the claim fails for
+   any other reason, continue with the review anyway and note it in the verdict.
+
 1. READ THE CARD. Run `bl show <card-id>` for full context: title, description,
    specifications (EARS notation acceptance criteria), and dependencies.
 
@@ -71,6 +79,12 @@ and modified files. You discover everything else by reading the codebase.
 7. PRODUCE FINDINGS. For each issue, apply the evidence threshold before including it.
 
 8. DELIVER VERDICT. Output your structured review (see output format below).
+
+9. RELEASE YOUR ROLE. After producing the verdict, run
+   `bl agent-state <card-id> --role reviewer --state done`. This clears the
+   running-state row so the stop hook stops counting you. Do this even on
+   ESCALATE — the orchestrator needs to know you've finished, regardless of
+   verdict.
 </review_protocol>
 
 <evidence_threshold>

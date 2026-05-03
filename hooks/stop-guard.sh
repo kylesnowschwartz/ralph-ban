@@ -9,7 +9,7 @@
 #   2. Setup + read stdin
 #   3. Uncommitted changes gate (always blocks, regardless of mode)
 #   4. Tool availability
-#   4.5. Worker activity gate (pauses quietly while workers run)
+#   4.5. Agent activity gate (pauses quietly while any role is running)
 #   5. Anti-loop guard (mode-aware: batch exits, autonomous falls through)
 #   6. Stall detection (safety valve: allows exit after MAX_STALLS)
 #   6.5. Circuit breaker warnings (cards bouncing review→doing)
@@ -101,18 +101,27 @@ fi
 # --- Phase 4: Tool availability ---
 require_bl
 
-# --- Phase 4.5: Worker activity gate ---
-# Detects active workers via agent_state=running in the database.
+# --- Phase 4.5: Agent activity gate ---
+# Counts assignments in state 'running' across every role: worker, reviewer,
+# oracle. The role-scoped assignments table makes verifiers visible to bl
+# without conflicting with the worker's claim — a card may carry up to three
+# concurrent rows. When any agent on any card is running, the orchestrator
+# is waiting on background work and firing board-state guidance is noise.
 #
-# When workers are active, the orchestrator can't make progress — it's waiting
-# for background agents to return. Firing board-state guidance creates noise
-# without value. Allow the stop hook to pass through silently.
+# The check skips cards in status='done' so a stale assignment on a closed
+# card cannot trap the orchestrator forever.
+#
 # Note: this comes AFTER the uncommitted changes gate — a dirty working tree
-# still blocks regardless of whether workers are running.
-_running_agents=$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running" and .status != "done")] | length' 2>/dev/null || echo "0")
+# still blocks regardless of whether agents are running.
+_running_agents=$("$BL" list --json 2>/dev/null | jq -s '
+  [
+    .[] | select(.status != "done")
+    | (.assignments // [])[] | select(.state == "running")
+  ] | length
+' 2>/dev/null || echo "0")
 if [ "$_running_agents" -gt 0 ]; then
-  jq -n '{
-    systemMessage: "Workers are running. Pausing until they complete."
+  jq -n --argjson n "$_running_agents" '{
+    systemMessage: ("Agents running (\($n) across worker/reviewer/oracle roles). Pausing until they complete.")
   }'
   exit 0
 fi
@@ -221,7 +230,14 @@ read -r todo_count doing_count <<<"$(count_active)"
 
 # Reuse the running-agent count from Phase 4.5 if we got here (it was 0 or the
 # check was skipped). Re-query only if the variable isn't set (defensive).
-running_count="${_running_agents:-$("$BL" list --json 2>/dev/null | jq -s '[.[] | select(.agent_state == "running")] | length' 2>/dev/null || echo "0")}"
+# The query mirrors Phase 4.5: any role's assignment in state 'running' on a
+# non-done card.
+running_count="${_running_agents:-$("$BL" list --json 2>/dev/null | jq -s '
+  [
+    .[] | select(.status != "done")
+    | (.assignments // [])[] | select(.state == "running")
+  ] | length
+' 2>/dev/null || echo "0")}"
 
 # Batch:      block on running agents (explicit state) or doing cards (catch orphans).
 # Autonomous: block on todo + doing until the board drains.

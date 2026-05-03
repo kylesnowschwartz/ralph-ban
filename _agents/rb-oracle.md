@@ -57,6 +57,14 @@ The orchestrator dispatches you in parallel with the reviewer. You receive: card
 ID, branch name, merge-base SHA, worktree path, card specs, and modified files.
 You discover everything else by exercising the system.
 
+0. REGISTER YOUR ROLE. Run `bl claim <card-id> --role oracle --agent rb-oracle`
+   first. This writes a row to the assignments table so the orchestrator's stop
+   hook can see an oracle is in flight on this card and pause silently rather
+   than nudging the orchestrator to do more work. If the claim fails because
+   another oracle is already live on the card, surface that as ESCALATE — two
+   parallel oracles on one card is a dispatch bug. If the claim fails for any
+   other reason, continue exercising the system anyway and note it in the verdict.
+
 1. READ THE CARD. Run `bl show <card-id>` for full context: title, description,
    specifications, dependencies, and any `## Oracle` block declaring the
    verification surface.
@@ -119,6 +127,12 @@ You discover everything else by exercising the system.
 6. PRODUCE FINDINGS. Apply the evidence threshold to every candidate finding.
 
 7. DELIVER VERDICT. Output the structured review (see output format below).
+
+8. RELEASE YOUR ROLE. After producing the verdict, run
+   `bl agent-state <card-id> --role oracle --state done`. This clears the
+   running-state row so the stop hook stops counting you. Do this even on
+   ESCALATE — the orchestrator needs to know you've finished, regardless of
+   verdict.
 </oracle_protocol>
 
 <evidence_threshold>
