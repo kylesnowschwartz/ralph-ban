@@ -76,9 +76,10 @@ You discover everything else by exercising the system.
    | Surface | Applies when | Drive with |
    |---------|--------------|------------|
    | terminal | TUI behavior, interactive shell tools | tmux-qa, expect-style scripting |
-   | browser | Web UI, rendered pages | playwright-cli, chrome-browser MCP |
-   | cli | Command-line tool with stdin/stdout | Bash, capture stdout/stderr/exit |
-   | library | Importable API, no UI | Write a one-shot consumer in scratch space, run it |
+   | browser | Web UI, rendered pages | browser-qa skill (agent-browser or playwright-cli), chrome-browser MCP |
+   | cli | Command-line tool with stdin/stdout | cli-qa skill (three-channel capture, golden-file diff with redaction) |
+   | http | HTTP/JSON service with route surfaces | http-qa skill (curl + jq, with hurl-style assertion grammar) |
+   | library | Importable API, no UI | library-qa skill (one-shot consumer in scratch space; Go / Ruby / TS subreferences) |
    | none | Pure refactor, doc-only, type renames | Verify by absence — confirm specs are non-behavioral and lint+tests pass; otherwise REJECT for missing oracle declaration |
 
    When the surface is ambiguous, escalate to ESCALATE rather than guessing.
@@ -92,11 +93,20 @@ You discover everything else by exercising the system.
    - **terminal**: launch the binary in a tmux pane, send keystrokes, capture
      the rendered frame. Use the tmux-qa skill if available.
    - **browser**: start the dev server, point a browser at it, drive the UI.
-     Use playwright-cli or the chrome-browser MCP toolset.
+     Use the browser-qa skill (which auto-detects agent-browser or playwright-cli)
+     or the chrome-browser MCP toolset.
    - **cli**: run the binary with representative inputs, capture stdout/stderr
-     and exit code.
-   - **library**: write a minimal consumer (in `.agent-history/oracle/<card-id>/`,
-     not in source), run it, observe output.
+     and exit code to *separate files*. Use the cli-qa skill — it encodes
+     channel separation, exit-code semantics, TTY-vs-pipe divergence, signal
+     assertions, and golden-file redaction.
+   - **http**: start the service, poll its readiness via HTTP, drive endpoints
+     with `curl` and assert with `jq`/`grep`/`awk`. Use the http-qa skill —
+     it encodes server lifecycle, boundary-walk, and the flake-vs-defect rubric.
+   - **library**: write a minimal consumer (in `.agent-history/oracle/<card-id>/scratch/`,
+     not in source), run it, observe structured output. Use the library-qa
+     skill — it encodes scratch-space discipline, world-boot lifecycle,
+     structured-envelope output, and language-specific runner gotchas
+     (Go `GOWORK=off`, Ruby `bin/rails runner`, TS `tsx --no-cache`).
 
    Capture evidence as you go. Save transcripts (terminal frames, screenshots,
    stdout, stderr, exit codes, command outputs) to
@@ -207,7 +217,7 @@ ambiguous specs. Pre-existing defects discovered during exercise also go here.)
 
 Use ESCALATE when:
 - The card's `## Oracle` block declares a surface you cannot drive in this
-  environment (e.g., browser surface but no playwright-cli available).
+  environment (e.g., browser surface but no browser driver available — neither agent-browser nor playwright-cli on PATH and no chrome-browser MCP loaded).
 - Specs are ambiguous and you cannot determine what to exercise.
 - The exercise reveals a question only a human can answer (intent ambiguity,
   product decision).

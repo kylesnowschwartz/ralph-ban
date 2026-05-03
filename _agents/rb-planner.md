@@ -153,7 +153,7 @@ be named.
 
 ```
 ## Oracle
-kind: terminal | browser | cli | library | none
+kind: terminal | browser | cli | http | library | none
 exercise: <one or two sentences naming what to drive and what to look for>
 ```
 
@@ -161,11 +161,15 @@ Surface guidance:
 - **terminal**: TUI behavior. Oracle drives the binary in tmux, sends keystrokes,
   captures rendered frames. Most ralph-ban cards land here.
 - **browser**: Web UI. Oracle starts the dev server (or expects it running),
-  drives a browser via playwright-cli or chrome MCP.
+  drives a browser via the browser-qa skill (agent-browser or playwright-cli) or chrome MCP.
 - **cli**: Command-line tool with stdin/stdout contract. Oracle runs it with
-  representative inputs, captures stdout/stderr/exit.
+  representative inputs via the cli-qa skill (three-channel capture, golden-file
+  diff with redaction).
+- **http**: HTTP/JSON service. Oracle starts the server, polls readiness, drives
+  endpoints via the http-qa skill (curl + jq + boundary-walk + flake-vs-defect rubric).
 - **library**: Importable API, no UI surface. Oracle writes a tiny consumer
-  program in scratch space, runs it, observes output.
+  program in scratch space via the library-qa skill (Go / Ruby / TS subreferences;
+  structured-envelope output; world-boot lifecycle).
 - **none**: No behavioral surface — pure refactor, doc-only, type renames.
   Requires explicit rationale: `kind: none — rationale: <why this change has
   no observable behavior>`. Oracle confirms by absence; if the change is in
@@ -219,7 +223,7 @@ bl create "Task title" --epic <epic-id> -p1 --status backlog --blocked-by <dep-i
 
 **Oracle-readiness check.** For each card, before promoting to `todo`, ask yourself: *could the rb-oracle agent drive this card from the description and specs alone?* If the answer requires the oracle to guess what surface to drive or what to look for, the card isn't oracle-ready. Concretely:
 
-- The `## Oracle` block names a surface (`kind: terminal | browser | cli | library | none`).
+- The `## Oracle` block names a surface (`kind: terminal | browser | cli | http | library | none`).
 - The `exercise:` line names *what to do* and *what to look for* — actions the oracle can take and observations it can make.
 - At least one EARS spec on the card describes a behavior the oracle can demonstrably exercise on that surface.
 - If `kind: none`, the description includes a rationale a skeptic would accept.

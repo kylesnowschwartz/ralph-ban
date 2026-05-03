@@ -85,15 +85,16 @@ Specs describe the task; the oracle exercises it. Every task card carries an
 
 ```
 ## Oracle
-kind: terminal | browser | cli | library | none
+kind: terminal | browser | cli | http | library | none
 exercise: <one or two sentences naming what to drive and what to look for>
 ```
 
 Surface choices:
 - **terminal** — TUI behavior, driven via tmux. Most ralph-ban cards.
-- **browser** — Web UI, driven via playwright-cli or chrome MCP.
-- **cli** — Command-line tool, driven via shell with captured stdout/stderr/exit.
-- **library** — Importable API, driven via a tiny consumer program in scratch space.
+- **browser** — Web UI, driven via the browser-qa skill (agent-browser or playwright-cli) or chrome MCP.
+- **cli** — Command-line tool, driven via the cli-qa skill (three-channel capture, golden-file diff with redaction).
+- **http** — HTTP/JSON service, driven via the http-qa skill (curl + jq, boundary-walk, flake-vs-defect rubric).
+- **library** — Importable API, driven via the library-qa skill (Go / Ruby / TS subreferences in scratch space, structured-envelope output).
 - **none** — No observable surface. Requires explicit rationale; choose carefully —
   if a worker could change behavior without lint+tests catching it, the kind is not none.
 
