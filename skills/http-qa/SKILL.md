@@ -34,16 +34,23 @@ bin/rails server -p 3000 >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 trap '[ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null' EXIT
 
-# Poll readiness — request the actual surface, not just /
+# Poll readiness — request the actual surface, and watch for the process to die
+ready=0
 for i in $(seq 1 60); do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "server process died before becoming ready (see $SERVER_LOG)" >&2
+    exit 1
+  fi
   if curl -sf -o /dev/null http://localhost:3000/up; then
+    ready=1
     break
   fi
   sleep 0.5
 done
+[ "$ready" = 1 ] || { echo "server failed to become ready in 30s (see $SERVER_LOG)" >&2; exit 1; }
 ```
 
-Lift the *mechanic* from `obra/superpowers-skills/skills/testing/condition-based-waiting`: poll on the condition you actually care about, not a guess about how long boot takes. The condition is "the endpoint under test responds," not "60 seconds have elapsed."
+Two non-default disciplines worth naming. First: poll on the condition you actually care about, not a guess about how long boot takes — the condition is "the endpoint under test responds," not "30 seconds have elapsed" (this is the lesson `obra/superpowers-skills/skills/testing/condition-based-waiting` encodes for in-process tests, retargeted to HTTP). Second: watch the server process itself with `kill -0`. A process that crashes during boot never opens the port and never responds; without the death check, the loop polls until timeout against a corpse, then runs the test against nothing. This is the load-bearing piece of `anthropics/skills/skills/webapp-testing/scripts/with_server.py` — a poll loop alone is not equivalent to the upstream pattern.
 
 Replace `bin/rails server -p 3000` and `/up` with the project's start command and a route the spec under test does *not* depend on (e.g., `/healthz`, `/up`, `/`). Polling the route under test masks readiness behind whatever the test will assert.
 
@@ -133,8 +140,6 @@ The transcript directory is the deliverable. Without it, the Oracle's APPROVE ha
 - **Walk the boundaries in order.** Failure at boundary N makes boundaries > N unassertable. Report the first failure and stop.
 - **Reproduce 5xx before judging it.** Two requests with the same input. Deterministic 5xx is a defect; intermittent is flake.
 - **Cite hurl, do not require it.** `curl + jq` is the universal floor; `hurl` is a richer dialect when present.
-- **Don't fix anything.** Report what's broken. This skill is QA, not implementation.
-
 ## Report Format
 
 ```

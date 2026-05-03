@@ -48,7 +48,7 @@ A `_test.go` file would require running `go test`, which means matching test sig
 
 ## Module-internal types
 
-If the library under test exposes only unexported types (`internal/` package layout, lowercase types), the probe must live in a package that has visibility — which usually means writing a small exported wrapper *in the worktree* under `internal/widget/oracle_helper.go`, calling it from the scratch program, and committing the helper as part of the card's evidence. This is the exception, not the rule; prefer to exercise the exported surface.
+If the library under test exposes only unexported symbols (lowercase types, `internal/` package layout), the scratch-only contract still holds — do *not* add a helper file to the worker's source tree. The probe should exercise the *exported* surface, because that is what callers see, which is what the spec is about. If the spec genuinely names an unexported symbol (rare, and a smell in itself), the verdict is `could-not-determine` and the planner should rewrite the spec to reference an exported observable. Adding source files to the worker's branch to make a probe possible would change what the reviewer is reviewing, which is exactly what the scratch-only rule prevents.
 
 ## Workspace gotchas
 
@@ -83,12 +83,13 @@ emit("result", result)
 
 ## Exit codes for Go probes
 
-- `0` — probe ran, library returned the expected shape.
-- `1` — library returned an error or unexpected shape; the envelope's `error` field carries detail.
-- `2` — probe itself is malformed (compile error, missing import). The Oracle should recognise this as a *probe defect*, not a library defect, and rewrite the probe.
-- `127` — `GOWORK=off go run` could not resolve the package; usually a path or workspace issue.
+`go run` exits `0` on success and `1` on any failure (compile error, runtime panic, `os.Exit(N)` with non-zero from the probe). It does *not* differentiate "library broke" from "probe is malformed" via the exit code — both surface as `1` plus a stderr message. The Oracle distinguishes them by *reading stderr*, not by the code:
 
-The Oracle's verdict distinguishes between "library is broken" (exit 1 with library-side error) and "probe is broken" (exit 2 with compile error). Conflating them leads to false REJECTs.
+- Stderr contains `cannot find package` / `undefined:` / `expected type` → probe defect (the scratch program does not compile against the library's API). Rewrite the probe.
+- Stderr is the program's own panic or error envelope → library defect (the library compiled but misbehaved at runtime). Record as a finding.
+- Stderr is empty and exit is `1` → the probe called `os.Exit(1)` deliberately; consult the structured output for what the envelope said.
+
+If the probe wraps its own logic, it can map specific outcomes to specific codes via `os.Exit(N)`. That mapping is the probe's contract, not Go's; document it inline. `go run` itself only signals success-or-failure with `0`/`1`.
 
 ## Common mistakes
 

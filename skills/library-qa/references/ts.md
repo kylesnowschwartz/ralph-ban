@@ -37,7 +37,7 @@ npx tsx --no-cache ./.agent-history/oracle/CARD-ID/scratch/probe.ts \
 echo "$?" > "$TXN/exit.txt"
 ```
 
-`--no-cache` is the lever that prevents `tsx` from serving a cached compilation of an older version of the library — important when the worker's branch changed library source between runs.
+`--no-cache` is hygiene, not correctness: `tsx` keeps a transpile cache that on hot re-runs of the same probe can serve a stale compilation. Passing it on every Oracle run is cheap insurance against the rare case where the cache outlasts the change. It is *not* a load-bearing flag — most probe runs would work without it.
 
 ## ESM vs CJS — the dual-package hazard
 
@@ -59,14 +59,14 @@ The fix is environmental: ensure `tsx` is resolving the same shape the worker's 
 
 ## tsconfig path mappings
 
-If the project uses path aliases (`"@/widget": "./src/widget"`), `tsx` honours `compilerOptions.paths` from `tsconfig.json` automatically *for files inside the tsconfig's `include` glob*. Probes living in `.agent-history/` are typically *outside* the include glob, which means path aliases do not resolve.
+If the project uses path aliases (`"@/widget": "./src/widget"`), `tsx` resolves them through whichever `tsconfig.json` it discovers first — typically the nearest one walking up from the probe file, with `TSCONFIG_PATH` as an override. A probe in `.agent-history/oracle/CARD-ID/scratch/` may resolve a different tsconfig than `src/`, depending on where `tsconfig.json` files live in the tree, and that mismatch produces "module not found" failures even when the alias is otherwise correct.
 
 Two workarounds:
 
-- Use relative imports in the probe (`../../../../src/widget`) — boring but always works.
-- Tell `tsx` where the tsconfig is: `npx tsx --tsconfig ./tsconfig.json probe.ts`. The probe is then treated as if it were inside the project for path-resolution purposes.
+- Use relative imports in the probe (`../../../../src/widget`) — boring but always works regardless of tsconfig discovery.
+- Pin the tsconfig: `TSCONFIG_PATH=./tsconfig.json npx tsx --no-cache probe.ts`, or pass `--tsconfig ./tsconfig.json` if the installed `tsx` version supports it.
 
-The relative-import form is simpler and survives path-mapping changes; prefer it.
+The relative-import form is simpler and survives discovery-order changes; prefer it.
 
 ## Async, top-level await, and `void main()`
 
@@ -119,9 +119,15 @@ Probe runner: tsx --no-cache (no bundler)
 
 If the spec asserts behaviour that depends on the bundler (e.g., "shall be tree-shakable"), `library-qa` is the wrong surface. Mark the spec `could-not-determine` and recommend a build-and-import probe instead.
 
+## Other gotchas
+
+- **`package.json#imports`** — subpath imports (`"#widget": "./src/widget.ts"`) are a separate resolution mechanism from `paths`; `tsx` honours them, but only when the probe's nearest `package.json` is the one that declares them.
+- **CJS-only deps imported from an ESM probe** — many older packages export only CJS. ESM probes that `import` them go through Node's CJS interop, which does not always preserve named exports. Use `import pkg from 'thing'; const { fn } = pkg;` when the named-import form fails.
+- **Native modules** — Node `.node` addons compiled for one Node version may fail to load under another; `tsx` runs against whichever Node is on PATH.
+
 ## Common mistakes
 
-- **No `--no-cache`** — `tsx` may serve a stale compilation; the probe exercises an outdated library.
+- **Stale tsx cache on hot re-runs** — `--no-cache` defends against it; not load-bearing but cheap.
 - **Ignoring the dual-package hazard** — silent two-copy loads produce confusing `instanceof` failures.
 - **Using `console.log` for the envelope** — Node-version-dependent buffering. Use `process.stdout.write` with explicit `"\n"`.
 - **Top-level await in CJS** — fails to compile. `void main()` everywhere.

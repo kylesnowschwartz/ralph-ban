@@ -20,6 +20,14 @@ The assertion vocabulary the Oracle uses against captured HTTP responses. Lifted
 
 `-e` exits non-zero when the result is `false` or `null`, which is what makes these usable in shell. Without `-e`, `jq` exits 0 even when the predicate returned `false`, and the Oracle would silently approve a mismatch.
 
+Distinguish `jq`'s exit codes when classifying a verdict:
+
+- `0` — predicate held.
+- `1` — predicate did not hold (the result was `false` or `null`). This is "spec mismatch."
+- `2` — usage error (malformed program, malformed input). This is "the response wasn't JSON" or "the predicate is wrong" — a probe defect or a server defect, *not* a satisfied/unsatisfied spec.
+
+Treating exit `1` and exit `2` the same conflates "the body is wrong" with "the body isn't JSON at all" — and the latter is often a 5xx page returned as HTML, which is a different finding entirely. Capture `jq`'s exit code per assertion and route exit-2 to a separate evidence column.
+
 ## Predicates over headers (`headers.txt`)
 
 | Predicate | Shell |

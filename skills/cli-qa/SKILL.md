@@ -44,42 +44,61 @@ echo "$?" > "$TXN/exit.txt"
 
 ## Exit code conventions
 
-POSIX gives the exit code precise meaning. A CLI spec that says "shall fail" is incomplete; the Oracle reads it as "shall exit non-zero," which leaves the *which* non-zero unaddressed.
+A CLI spec that says "shall fail" is incomplete; the Oracle reads it as "shall exit non-zero," which leaves the *which* non-zero unaddressed.
 
-| Code | Meaning | When the spec is satisfied |
+The shell-level conventions (`126`, `127`, `128+N`) are POSIX-defined; `0` and any specific small non-zero code (`1`, `2`, etc.) are *program-defined* — different tools use them differently. `git` uses `1` for "merge conflict" and `128` for "fatal error"; `grep` uses `1` for "no match" (a non-error). The Oracle treats an exit code as a fact to record, not a category to interpret, unless the program documents its codes.
+
+| Code | Defined by | What it tells the Oracle |
 |---|---|---|
-| 0 | success | when the spec asserts success |
-| 1 | generic error | when the spec asserts a non-specific failure |
-| 2 | misuse / usage error | when the spec asserts "shall reject invalid flags" |
-| 126 | found but not executable | a setup defect, not behaviour under test |
-| 127 | command not found | the binary was not built; halt the QA |
-| 128 + N | killed by signal N (e.g., 130 = 128+SIGINT) | when the spec asserts signal-handling behaviour |
+| 0 | program | exit was graceful — the program decided everything succeeded |
+| 1, 2, 3, … | program | program-specific; check the program's docs/man page before interpreting |
+| 126 | shell | command was found but not executable — a setup defect, not behaviour under test |
+| 127 | shell | command was not found — the binary was not built; halt the QA |
+| 128 + N | shell | the program was killed by signal N (e.g., 130 = 128 + SIGINT, 137 = 128 + SIGKILL) |
 
-If the card's spec is "shall exit non-zero on bad input," ask: which non-zero? `1` for "we tried and failed" reads differently than `2` for "we wouldn't try because the request was malformed." The Oracle should record the observed code and note when the spec is too vague to verify against a specific code.
+If the card's spec is "shall exit non-zero on bad input," ask the planner which code, or note in the verdict that the spec is too vague to verify against a specific code.
 
 ## Pipeline gotchas
 
-`set -e` does not cause a script to fail when a command in a pipeline fails — only the *last* exit code is consulted unless `set -o pipefail` is set. For Oracle scripts that drive multi-stage pipelines, `set -euo pipefail` at the top is the discipline.
+`2>&1` collapses stderr into stdout — after this, "what did the program write to stderr" is unanswerable. Keep them apart in the Oracle's capture. For multi-stage pipelines, `set -euo pipefail` at the top of the script makes failures in any stage propagate; without `pipefail`, only the last stage's exit is consulted.
 
-`2>&1` collapses stderr into stdout. After this, "what did the program write to stderr" is unanswerable. The Oracle's capture must keep them apart; use `2>&1` only when piping to a tool that genuinely needs the merged stream (and even then, capture the originals first).
+## Environment that warps output
+
+CLIs check more than `isatty(1)` to decide what to print. The Oracle should fix the obvious env-var levers for reproducibility:
+
+| Variable | Effect when unset / default | What to set for deterministic capture |
+|---|---|---|
+| `TERM` | colour, cursor codes vary | `TERM=dumb` for plainest output |
+| `NO_COLOR` | many tools respect this | `NO_COLOR=1` to disable colour even on TTYs |
+| `CI` | many tools change output for CI | `CI=` (unset) or `CI=1` per intent |
+| `LC_ALL` / `LANG` | number / date format vary | `LC_ALL=C` |
+| `TZ` | local-time output drifts | `TZ=UTC` |
+| `PAGER` | tools like `git log` paginate | `PAGER=cat` to disable |
+| `COLUMNS` | line-wrapping width | `COLUMNS=80` for stable wraps |
+
+`env -i HOME=$HOME PATH=$PATH TERM=dumb LC_ALL=C TZ=UTC ./bin/mytool ...` is the heavy form when the spec asserts byte-exact output.
 
 ## TTY-vs-pipe divergence
 
 Many CLIs check `isatty(1)` and change output: colours on for TTYs and off for pipes, progress bars only when interactive, paginated output through `less` only when stdout is a terminal. The Oracle's redirected captures are *pipes*, so the captured output is the non-TTY path.
 
-When the spec asserts behaviour the program only emits on a TTY (e.g., "shall print a progress bar"), force a PTY:
+When the spec asserts behaviour the program only emits on a TTY (e.g., "shall print a progress bar"), force a PTY with `script`. Note three caveats:
+
+- `script` does *not* preserve separate stdout and stderr; under a PTY both flow through the single terminal channel. A `2>` redirect on `script` captures `script`'s own stderr, not the program's. Pick: TTY mode (one merged transcript) *or* separate-channel mode (no PTY) — you cannot have both from `script` alone. For separate channels under a PTY, use a tool like `socat` or run the program twice.
+- The PTY transcript carries CR (`\r`), backspace, and other terminal control bytes the underlying program emits. Goldens against PTY output need an additional normalisation pass (`tr -d '\r'`, ANSI strip, control-byte filter).
+- `script` flag spelling differs by platform:
 
 ```bash
-# Linux and macOS — flag spelling differs
 if [[ "$OSTYPE" == darwin* ]]; then
-  script -q /dev/null ./bin/mytool subcommand > "$TXN/stdout-tty.txt" 2> "$TXN/stderr.txt"
+  script -q /dev/null ./bin/mytool subcommand > "$TXN/transcript.txt"
 else
-  script -q -c './bin/mytool subcommand' /dev/null > "$TXN/stdout-tty.txt" 2> "$TXN/stderr.txt"
+  script -q -c './bin/mytool subcommand' /dev/null > "$TXN/transcript.txt"
 fi
 echo "$?" > "$TXN/exit.txt"
+# transcript.txt contains merged stdout+stderr with terminal control bytes
 ```
 
-Capture the non-TTY path *and* the TTY path when both matter. The non-TTY path is what scripts and CI see; the TTY path is what humans see. The spec usually specifies one or the other.
+Capture the non-TTY path *and* the PTY transcript when both matter. The non-TTY path is what scripts and CI see; the PTY path is what humans see. The spec usually specifies one or the other.
 
 ## Signal-handling assertions
 
@@ -88,13 +107,19 @@ When the spec asserts shutdown behaviour ("shall exit cleanly on SIGINT"), drive
 ```bash
 ./bin/mytool serve >"$TXN/stdout.txt" 2>"$TXN/stderr.txt" &
 PID=$!
-sleep 0.5                              # let it bind / reach steady state
+
+# Poll for readiness — sleep is flaky for slow-starting binaries
+for i in $(seq 1 60); do
+  if grep -q 'listening' "$TXN/stderr.txt" 2>/dev/null; then break; fi
+  sleep 0.1
+done
+
 kill -INT "$PID"
-wait "$PID"; CODE=$?                   # captures 130 = 128 + SIGINT
+wait "$PID"; CODE=$?
 echo "$CODE" > "$TXN/exit.txt"
 ```
 
-The asserted behaviour is usually some combination of: the process exited, the exit code is `130`, stderr printed a specific shutdown message, no orphan child processes remain. All four are checkable; the spec usually picks one.
+If the binary handles SIGINT and exits cleanly with its own non-zero code, `wait` returns that code. If the binary does *not* handle SIGINT and the kernel terminates it, `wait` returns `130` (= 128 + SIGINT). Don't claim "expect 130" without naming which case you're testing — the spec must specify "shall exit 0 on SIGINT" or "shall exit 130 (uncaught SIGINT)" for the verdict to be unambiguous. The asserted behaviour is usually some combination of: the process exited, the exit code matches the spec, stderr printed a shutdown message, no orphan child processes remain.
 
 ## Golden-file comparison
 
@@ -147,8 +172,6 @@ Link the side-effect transcript from this skill's `verdict.md`.
 - **Reproduce signal behaviour explicitly.** Send the signal; wait; capture the code. Implicit shutdowns (SIGTERM at end of pipeline) are different from asserted SIGINT handling.
 - **Redact before diff.** Timestamps, PIDs, temp paths, terminal widths, ANSI escapes. The redaction list belongs in `references/golden-files.md`.
 - **Regenerate goldens deliberately.** A golden updated to match observed output is no longer a spec — it is a record. The Oracle does not regenerate; it reports mismatch and lets the worker decide.
-- **Don't fix anything.** Report what's broken. This skill is QA, not implementation.
-
 ## Report Format
 
 ```

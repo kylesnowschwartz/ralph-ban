@@ -69,7 +69,7 @@ A probe that prints free text is fragile — the Oracle's parser becomes a regex
 {"summary":{"id":42,"ok":true,"errors":[]}}
 ```
 
-Lifted from `anthropics/skills/mcp-builder/scripts/evaluation.py`: a structured envelope keeps "what the probe observed" separable from "what the probe printed for humans." The Oracle's verdict reads the envelope, not the trace.
+The discipline ("structured envelope keeps what the probe *observed* separable from what it *printed for humans*") is the lesson `anthropics/skills/mcp-builder/scripts/evaluation.py` encodes — the upstream uses XML-tagged blocks (`<summary>`, `<feedback>`, `<response>`); this skill prefers JSON because shell tools (`jq`) read it natively. The format is different; the separation discipline is the same. The Oracle's verdict reads the envelope, not the trace.
 
 ## Side-effect isolation
 
@@ -104,8 +104,6 @@ The probe source is part of the transcript. A future reader of the verdict needs
 - **Capture three channels.** Same discipline as `cli-qa` — stdout, stderr, exit, separate.
 - **Honor language-specific runners.** `GOWORK=off` for Go in worktrees, `bin/rails runner` for Rails-loaded code, `tsx --no-cache` for TS. Each language's reference file names the gotcha.
 - **Isolate side effects, or document the leak.** A probe that mutates shared state without restoration distorts the next exercise.
-- **Don't fix anything.** Report what's broken. This skill is QA, not implementation.
-
 ## Report Format
 
 ```

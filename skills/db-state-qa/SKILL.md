@@ -17,24 +17,25 @@ If no scope was provided, read the recent changeset to determine which tables, s
 - `references/engine-specific.md` — introspection queries per engine (SQLite `sqlite_master`, Postgres `pg_catalog` and `information_schema`, MySQL), the WAL gotcha, advisory locks. Load when the spec asserts schema or constraint state.
 - `references/active-record.md` — Rails app-level state via `bin/rails runner`, including the autoload boundary and the difference between asserting on AR objects versus raw SQL. Load when the library under test is a Rails app.
 
-## Why this skill exists
+## What makes this skill different from "DB testing"
 
-The reviewer reads code; the Oracle drives behaviour. For changes that mutate database state, "the code looks correct" is the precise failure mode the Oracle exists to backstop. A spec that says "shall persist a Widget row" is satisfied when *a row exists with the asserted shape*, not when the controller calls `Widget.create!`. The Oracle observes the result; it does not read the call site.
+A db-state Oracle and a unit-test database harness solve different problems and use opposing tools. The unit-test harness wraps each test in a transaction and rolls back, or truncates tables between tests, or substitutes a mock — all to make the test *fast and isolated*. The Oracle does the opposite: it exercises *live, committed* state, observes whatever the action actually wrote, and rolls nothing back.
 
-This is the inversion the research turned up. Test-mocking libraries — `database_cleaner`, `sqlmock`, transactional fixtures, savepoint-based isolators — exist to make *unit tests* fast and isolated. They are antithetical to what the Oracle does: the Oracle exercises *live* state, observes the side effect, and rolls nothing back. A db-state assertion using sqlmock observes the worker's SQL string, not the database — and the worker already convinced themselves the SQL was right. The Oracle's job is the third leg of the stool.
+The taxonomy in `database_cleaner`'s README (transaction / truncation / deletion strategies) is sound for unit tests; it is the *wrong* set of choices for an Oracle. Cite it as orientation, not as a tool to use.
 
-`samber/cc-skills-golang/skills/golang-database/references/testing.md` documents sqlmock-style verification for *unit tests*. Cite it as the anti-pattern this skill replaces in the Oracle's context.
+`samber/cc-skills-golang/skills/golang-database/references/testing.md` covers both mock-based unit tests and real-database integration tests; the mock-based half is what the Oracle's existence implicitly responds to (assertions on SQL strings rather than database rows leave room for the worker's bugs to slip through).
 
 ## The workflow
 
 The spec asserts behaviour of the form *"after action X, the database shall be in state Y."* The Oracle's exercise is therefore three phases: snapshot before, perform X, snapshot after, compare.
 
 1. Identify the database connection target (file path for SQLite, host/port/db for Postgres/MySQL, environment for Rails).
-2. **Snapshot before**: capture row counts, key rows, and schema state for the tables the spec names. Persist to `before.json`.
+2. **Snapshot before**: capture row counts, key rows, and schema state for the tables the spec names. Use `ORDER BY` on every multi-row query so the JSON output is deterministic. Persist to `before.json`.
 3. **Exercise the action**: invoke the primary surface (HTTP request, CLI invocation, library call). The action is whatever `http-qa` / `cli-qa` / `library-qa` is driving.
-4. **Snapshot after**: capture the same fields. Persist to `after.json`.
-5. **Diff structurally**: compare `before.json` to `after.json`, ignoring fields the spec does not assert (timestamps, autoincrement IDs).
-6. Apply the spec's assertion to the diff.
+4. **Wait for quiescence** if the action triggers async work. `after_commit` callbacks, queued jobs, and replicated writes all complete *after* the action's primary response. Snapshotting immediately can race them. See "Quiescence" below.
+5. **Snapshot after**: capture the same fields, in the same order. Persist to `after.json`.
+6. **Diff structurally**: compare `before.json` to `after.json`, ignoring fields the spec does not assert (timestamps, autoincrement IDs).
+7. Apply the spec's assertion to the diff.
 
 ```bash
 TXN=.agent-history/oracle/$CARD_ID/$(date +%Y%m%dT%H%M%S)
@@ -44,9 +45,15 @@ snapshot_state > "$TXN/before.json"
 ./oracle/perform-action.sh > "$TXN/action.log" 2>&1
 ACTION_EXIT=$?
 echo "$ACTION_EXIT" > "$TXN/action_exit.txt"
+
+# Wait for the asserted side effect to settle before snapshotting.
+# For sync writes, no wait. For async, see "Quiescence" below.
+./oracle/wait-for-quiescence.sh
+
 snapshot_state > "$TXN/after.json"
 
-# Structural diff with volatile fields blanked
+# Structural diff with volatile fields blanked.
+# `walk` is a builtin in jq 1.5+ (Linux/macOS default jq is usually 1.6).
 jq -S 'walk(if type == "object" then del(.created_at, .updated_at, .id) else . end)' \
    "$TXN/before.json" > "$TXN/before.normalised.json"
 jq -S 'walk(if type == "object" then del(.created_at, .updated_at, .id) else . end)' \
@@ -56,6 +63,23 @@ diff -u "$TXN/before.normalised.json" "$TXN/after.normalised.json" > "$TXN/diff.
 ```
 
 The asserted change shows up in `diff.txt` as `+` lines for new rows and `-` lines for removed rows. Volatile fields are normalised away first so the diff is signal, not noise.
+
+## Determinism: order matters
+
+A `SELECT * FROM widgets WHERE name='test'` that returns three rows can return them in any order between two snapshots — the diff will then show three `-` lines and three `+` lines for the same rows, just shuffled. Every multi-row query in a snapshot must include `ORDER BY` on a stable key (primary key, timestamp + id tiebreaker). For ActiveRecord, `Widget.order(:id)` everywhere; for raw SQL, `ORDER BY id ASC` everywhere. Without this, the diff lies.
+
+## Quiescence: when to snapshot after async work
+
+If the action's side effect is asynchronous, the immediate after-snapshot may run before the side effect lands. Common sources of asynchrony:
+
+- **`after_commit` callbacks** in Rails — fire after the transaction commits, which is after the controller returns.
+- **Queued jobs** (Sidekiq, Active Job, Resque) — the action enqueues; a worker dequeues and runs later.
+- **Replicated writes** — primary commits, replica catches up after lag.
+- **Counter cache updates** — sometimes synchronous, sometimes deferred.
+
+Two disciplines depending on the source. For job-driven effects, drain the queue before snapshotting (`Sidekiq::Worker.drain` in tests; `bin/rails runner 'YourJob.drain'` for a one-shot, or wait on a job-completion log line via `log-tail-qa`). For `after_commit` and counter caches, the effect is usually settled by the time the controller's response reaches the client; snapshot immediately after the response. For replication, route the snapshot to the primary, not a replica.
+
+If the spec is silent on async-vs-sync and the action is observably async, the verdict is `could-not-determine` and the planner should specify the quiescence condition.
 
 ## Snapshotting state
 
@@ -149,8 +173,6 @@ The `diff.txt` is the verdict's evidence column. A satisfied spec usually corres
 - **Do not run inside a transaction.** Transactional rollback is the failure mode the Oracle exists to backstop. The Oracle observes committed state.
 - **Prefer engine-specific catalogue queries for schema.** `sqlite_master`, `pg_catalog`, `information_schema` per `references/engine-specific.md` — ORM-level introspection (e.g., `User.columns_hash`) reads the schema cache, which may be stale.
 - **For Rails apps, use `bin/rails runner`.** `bundle exec ruby -e "require 'config/environment'; ..."` is the manual fallback; runner is the canonical surface.
-- **Don't fix anything.** Report what's broken. This skill is QA, not implementation.
-
 ## Report Format
 
 ```

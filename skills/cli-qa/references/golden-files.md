@@ -55,11 +55,13 @@ diff -u testdata/expected.txt "$TXN/stdout.redacted.txt"
 
 The list above is the set worth committing to memory. Project-specific volatiles (request IDs, trace IDs, machine names) extend it.
 
-## Lifted from snapbox
+## Inspired by snapbox
 
-`assert-rs/snapbox` (Apache-2.0, Rust) introduces *named* placeholders — `[TIMESTAMP]`, `[PID]`, `[..]` — rather than treating volatiles as opaque blanks. The named form preserves diff readability: a missing `[PID]` in the observed output tells you the field was present in the golden but absent in the run, which is a substantive change. A blanked-out diff loses that distinction.
+`assert-rs/snapbox` (Apache-2.0, Rust) ships built-in placeholders for the runtime's own contributions — `[EXE]` for the executable extension on Windows (`.exe` or empty), `[..]` for "any text" — and lets the user define additional named placeholders for project-specific volatiles. The skill borrows the *naming convention* (`[TIMESTAMP]`, `[PID]`, etc., as locally-defined names that preserve diff readability) rather than the snapbox built-in set, which is smaller and Rust-flavoured.
 
-The placeholders are not regex by default; they are textual sentinels written into the golden as the redaction output, then matched textually. A diff over a redacted observed against a redacted golden is what produces the verdict.
+The discipline that survives the borrowing: a *named* placeholder beats an opaque blank. A missing `[PID]` in the observed output tells you the field was present in the golden but absent in the run, which is a substantive change. A blanked-out diff loses that distinction.
+
+The placeholders are textual sentinels written into the golden as the redaction output, then matched textually against the redacted observed. A diff over a redacted observed against a redacted golden is what produces the verdict.
 
 ## When NOT to use golden files
 

@@ -86,12 +86,13 @@ For schema assertions, the rule is to use raw SQL via `references/engine-specifi
 
 Rails autoloads constants on first reference. A snapshot script that references `Widgets::Renderer` triggers a Zeitwerk load; failure to load (typo, namespace mismatch, missing file) raises `NameError`.
 
-The Oracle reads error messages:
-- `uninitialized constant Widgets::Renderer` — the snapshot script has a typo or the constant is genuinely absent. Probe defect; rewrite.
-- `wrong number of arguments (given N, expected M)` — the constant exists but the API differs from what the snapshot expected. Library defect; finding.
-- `NoMethodError: undefined method 'foo' for Widget:Class` — the method is missing. Library defect; finding.
+The Oracle reads error messages, but cannot classify them from the message alone — `NoMethodError` and `ArgumentError` are usually probe defects (the scratch program calls the API wrong) and only sometimes library defects (the API genuinely changed in a way the spec asserts):
 
-The first kind is the snapshot's fault; the latter two are findings the Oracle records.
+- `uninitialized constant Widgets::Renderer` — the snapshot script has a typo or the constant is genuinely absent. Probe defect by default; rewrite. If the same name fails through the *primary surface* exercise (curl hits a controller that uses the same constant, gets a 500), it becomes a library defect.
+- `wrong number of arguments (given N, expected M)` — the snapshot's call shape is wrong, OR the API changed. Cross-check by reading the model file or by reproducing the failure through the primary surface.
+- `NoMethodError: undefined method 'foo' for Widget:Class` — same disambiguation. Probe defect unless the primary surface confirms the method is missing in a path the spec asserts.
+
+Rule: a snapshot-only error is a probe defect until reproduced through the primary surface. The Oracle's job is to verify the spec, not to debug snapshot scripts that broke on first contact.
 
 ## Transactional fixtures — the inversion
 
