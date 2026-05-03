@@ -95,21 +95,22 @@ Both `.claude/agents/` and `.ralph-ban/plugin/agents/` are gitignored and regene
 
 ## Hooks
 
-Four hooks inject board state and enforce workflow gates. All source `hooks/lib/board-state.sh` for shared infrastructure (per-invocation SQLite caching, hash-based change detection, `BL_ROOT` for worktree path resolution).
+Two plugin-level hooks inject board state and enforce workflow gates. Both source `hooks/lib/board-state.sh` for shared infrastructure (per-invocation SQLite caching, hash-based change detection, `BL_ROOT` for worktree path resolution).
 
-- **SessionStart** — Board snapshot into agent context. User sees the board summary.
-- **UserPromptSubmit** — Diffs board since last snapshot. Embeds dispatch nudges (unclaimed todos), review queue alerts (3+ in review), circuit breaker (cards bouncing review-doing 3+ times), and stall detection (cards stuck in doing 5+ cycles).
+- **SessionStart** — Board snapshot into agent context. User sees the board summary. Matcher `startup|clear|compact` — the same hook re-injects state after `/clear` and after compaction, replacing the former PreCompact hook.
 - **Stop** — Blocks on uncommitted changes and active board work (batch: doing only; autonomous: todo + doing). A `stop_hook_active` flag prevents infinite recursion. Stall cycle limit prevents permanent trapping.
-- **PreCompact** — Re-injects board state summary before context compression. Without this, compressed context loses board awareness.
+
+Two additional hooks live in agent frontmatter, scoped to a single agent rather than the plugin:
+
+- **PreToolUse on `Agent`** (`_agents/rb-orchestrator.md`) — `hooks/prevent-nested-worktree.sh` denies `Agent` tool calls when the orchestrator is already inside a worktree, preventing nested `.claude/worktrees/X/.claude/worktrees/Y` paths.
+- **Stop** (`_agents/rb-worker.md`) — a prompt-style hook that verifies the worker's tree is clean, the card is in review, and specs are checked before allowing the worker to stop.
 
 ### Hook output channels
 
 | Event | Agent context | User-visible |
 |-------|--------------|--------------|
 | SessionStart | `additionalContext` (board summary) | `systemMessage` (board summary) |
-| UserPromptSubmit | `additionalContext` (full: diffs, nudges, breaker, stalls) | `systemMessage` (actionable only: breaker, stalls, rate limit) |
 | Stop | `systemMessage` (workflow guidance) | `reason` (short block reason) |
-| PreCompact | Both channels get full state (compression destroys prior context) |
 
 ## Agent Frontmatter
 

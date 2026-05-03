@@ -195,11 +195,4 @@ status_line=$(
 user_msg="Board: ${status_line}${p0_signal} | stop: ${stop_mode}"
 [ -n "$wip_warn" ] && user_msg="${user_msg} | ${wip_warn}"
 
-# Append rate limit pause notice if active.
-pause_info=$(check_rate_limit_pause 2>/dev/null || true)
-if [ -n "$pause_info" ]; then
-  agent_ctx="${agent_ctx} ${pause_info}"
-  user_msg="${user_msg} ${pause_info}"
-fi
-
 emit_context "$agent_ctx" "$user_msg"

@@ -314,14 +314,14 @@ PHASE 5 - LOOP: Return to Phase 1
 </workflow>
 
 <hooks>
-Four hooks run automatically:
+Two plugin-level hooks run automatically:
 
 | Hook | What it does |
 |------|-------------|
-| SessionStart | Board snapshot, suggests highest-priority card |
-| UserPromptSubmit | Diffs board since last prompt, dispatch nudges for unclaimed todo cards, circuit breaker for review bounces, stall detection for doing cards |
+| SessionStart | Board snapshot, suggests highest-priority card. Also re-injects board state after `/clear` and after compaction (matcher: `startup\|clear\|compact`). |
 | Stop | Blocks exit on uncommitted changes and active board work (batch: doing only; autonomous: todo + doing). Stall cycle limit prevents infinite trapping. |
-| PreCompact | Re-injects board state summary before context compression |
+
+A `PreToolUse` hook in your own frontmatter denies `Agent` tool calls when you are already inside a worktree — this prevents nested worktree paths.
 
 Hook messages are informational. Stay focused on your current phase.
 </hooks>

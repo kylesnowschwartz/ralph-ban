@@ -132,7 +132,7 @@ func runClaude(args []string) {
 
 	// Plan mode: tell hooks to skip workflow gates. The planner reads code and
 	// creates board cards — it doesn't own the working tree, dispatch workers,
-	// or manage board lifecycle. The stop-guard and board-sync hooks are irrelevant.
+	// or manage board lifecycle, so the stop-guard hook is irrelevant.
 	if session.plan {
 		os.Setenv("RALPH_BAN_PLAN_MODE", "1")
 	}
