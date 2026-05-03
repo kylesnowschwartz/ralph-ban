@@ -128,6 +128,16 @@ Save artefacts under `.agent-history/oracle/<card-id>/<timestamp>/`:
 
 The transcript directory is the deliverable. The reviewer reads code; the Oracle reads these files.
 
+## Side-effect assertions
+
+When the spec asserts effects beyond stdout/stderr/exit — a database row written, a log line emitted, a file created — the cli-qa skill covers the *invocation* half. Delegate the assertion half:
+
+- Database state → `db-state-qa` skill (snapshot before, snapshot after, structural diff with volatile-field normalisation).
+- Log content → `log-tail-qa` skill (bounded wait for pattern with history/occurrence semantics).
+- File-system state → check structurally with `find` + `stat`; no dedicated skill yet.
+
+Link the side-effect transcript from this skill's `verdict.md`.
+
 ## Rules
 
 - **Three channels, three files.** Never `2>&1` in the capture. Stderr carries information the spec may assert.

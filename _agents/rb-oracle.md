@@ -108,6 +108,18 @@ You discover everything else by exercising the system.
      structured-envelope output, and language-specific runner gotchas
      (Go `GOWORK=off`, Ruby `bin/rails runner`, TS `tsx --no-cache`).
 
+   When a card's spec asserts side effects beyond the primary surface — a
+   database row, an emitted log line — invoke a side-effect skill from the
+   primary oracle:
+
+   - Database state → `db-state-qa` skill (snapshot before, exercise, snapshot
+     after, structural diff with volatile-field normalisation).
+   - Log content → `log-tail-qa` skill (bounded wait for pattern with
+     history/occurrence semantics; portable across BSD/GNU `timeout`).
+
+   These are not new `kind:` values; they are delegates the primary-surface
+   oracle reaches for. Link the side-effect transcript into the verdict.
+
    Capture evidence as you go. Save transcripts (terminal frames, screenshots,
    stdout, stderr, exit codes, command outputs) to
    `.agent-history/oracle/<card-id>/<timestamp>/`. The transcript is your

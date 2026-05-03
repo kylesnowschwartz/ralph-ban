@@ -170,6 +170,13 @@ Surface guidance:
 - **library**: Importable API, no UI surface. Oracle writes a tiny consumer
   program in scratch space via the library-qa skill (Go / Ruby / TS subreferences;
   structured-envelope output; world-boot lifecycle).
+
+Side-effect assertions (database state, log content) are delegated, not declared
+as `kind:` values. When a card's spec asserts "after action X, the database shall
+contain Y" or "after action X, the log shall contain pattern Z," the planner
+writes the assertion into the `exercise:` line and the primary-surface oracle
+invokes `db-state-qa` (snapshot/diff with volatile-field normalisation) or
+`log-tail-qa` (bounded wait with history/occurrence semantics) to verify it.
 - **none**: No behavioral surface — pure refactor, doc-only, type renames.
   Requires explicit rationale: `kind: none — rationale: <why this change has
   no observable behavior>`. Oracle confirms by absence; if the change is in
