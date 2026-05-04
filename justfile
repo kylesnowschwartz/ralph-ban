@@ -16,9 +16,16 @@ build:
 build-bl:
     cd {{ bl_src }} && go build -o {{ bl_bin }} ./cmd/bl
 
-# Install local build as the system binary for dogfooding
+# Install local build as the system binary for dogfooding.
+# `cp` preserves the source's `com.apple.provenance` xattr, which combined
+# with Go's linker-signed ad-hoc signature triggers AppleSystemPolicy to
+# SIGKILL the binary on launch ("zsh: killed"). Strip xattrs and re-sign
+# ad-hoc with a proper identifier to keep the installed binary launchable.
+# Both steps are best-effort so non-macOS environments are unaffected.
 dev: build
     cp {{ bin }} ~/go/bin/{{ bin }}
+    -@xattr -cr ~/go/bin/{{ bin }} 2>/dev/null
+    -@codesign --force --sign - ~/go/bin/{{ bin }} 2>/dev/null
     @echo "Installed $(./{{ bin }} version) to ~/go/bin/{{ bin }}"
 
 # Build both binaries
