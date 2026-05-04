@@ -100,9 +100,10 @@ Two plugin-level hooks inject board state and enforce workflow gates. Both sourc
 - **SessionStart** — Board snapshot into agent context. User sees the board summary. Matcher `startup|clear|compact` — the same hook re-injects state after `/clear` and after compaction, replacing the former PreCompact hook.
 - **Stop** — Blocks on uncommitted changes and active board work (batch: doing only; autonomous: todo + doing). A `stop_hook_active` flag prevents infinite recursion. Stall cycle limit prevents permanent trapping.
 
-Two additional hooks live in agent frontmatter, scoped to a single agent rather than the plugin:
+Three additional hooks live in agent frontmatter, scoped to a single agent rather than the plugin:
 
 - **PreToolUse on `Agent`** (`_agents/rb-orchestrator.md`) — `hooks/prevent-nested-worktree.sh` denies `Agent` tool calls when the orchestrator is already inside a worktree, preventing nested `.claude/worktrees/X/.claude/worktrees/Y` paths.
+- **PreToolUse on `Edit|Write|MultiEdit|NotebookEdit`** (`_agents/rb-worker.md`) — `hooks/prevent-out-of-worktree-write.sh` denies file writes whose target resolves outside the worker's worktree. CWD-isolation alone doesn't stop a worker from constructing absolute paths to main; this hook is the lexical containment gate that does.
 - **Stop** (`_agents/rb-worker.md`) — a prompt-style hook that verifies the worker's tree is clean, the card is in review, and specs are checked before allowing the worker to stop.
 
 ### Hook output channels

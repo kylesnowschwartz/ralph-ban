@@ -764,6 +764,132 @@ test_cb_missing_file_defaults_closed() {
 }
 
 # ============================================================
+# prevent-out-of-worktree-write.sh
+# ============================================================
+#
+# The hook reads JSON on stdin and either exits 0 silently (allow) or
+# emits a deny payload with permissionDecision: "deny". We test the
+# observable contract: stdout content, not exit code semantics, since
+# the hook always exits 0 (per PreToolUse contract — JSON drives the
+# decision).
+
+POOWW="$HOOKS_DIR/prevent-out-of-worktree-write.sh"
+
+# Build a PreToolUse input JSON for Edit/Write-style tools.
+poow_input() {
+  local cwd="$1" tool="$2" path="$3"
+  jq -n \
+    --arg cwd "$cwd" \
+    --arg tool "$tool" \
+    --arg path "$path" \
+    '{
+      cwd: $cwd,
+      tool_name: $tool,
+      tool_input: { file_path: $path }
+    }'
+}
+
+# Same shape but for NotebookEdit (uses notebook_path).
+poow_input_notebook() {
+  local cwd="$1" path="$2"
+  jq -n \
+    --arg cwd "$cwd" \
+    --arg path "$path" \
+    '{
+      cwd: $cwd,
+      tool_name: "NotebookEdit",
+      tool_input: { notebook_path: $path }
+    }'
+}
+
+test_poow_noop_outside_worktree() {
+  setup
+  local out
+  out=$(run_hook_with_input "$(poow_input /Users/kyle/Code/proj Edit /Users/kyle/Code/proj/foo.go)" "$POOWW")
+  assert_eq "$out" "" "poow: no output (allow) when CWD outside worktree"
+  teardown
+}
+
+test_poow_allows_relative_path_in_worktree() {
+  setup
+  local cwd="/Users/x/proj/.claude/worktrees/agent-aaa"
+  local out
+  out=$(run_hook_with_input "$(poow_input "$cwd" Edit server/ws.ts)" "$POOWW")
+  assert_eq "$out" "" "poow: relative path inside worktree is allowed (no output)"
+  teardown
+}
+
+test_poow_allows_absolute_inside_worktree() {
+  setup
+  local cwd="/Users/x/proj/.claude/worktrees/agent-aaa"
+  local out
+  out=$(run_hook_with_input "$(poow_input "$cwd" Write "$cwd/server/ws.ts")" "$POOWW")
+  assert_eq "$out" "" "poow: absolute path inside worktree is allowed"
+  teardown
+}
+
+test_poow_denies_absolute_to_main() {
+  setup
+  local cwd="/Users/x/proj/.claude/worktrees/agent-aaa"
+  local out
+  out=$(run_hook_with_input "$(poow_input "$cwd" Edit /Users/x/proj/server/ws.ts)" "$POOWW")
+  assert_contains "$out" "permissionDecision" "poow: deny payload emitted for absolute-to-main"
+  assert_contains "$out" "deny" "poow: deny decision present"
+  assert_contains "$out" "outside worktree" "poow: deny reason names containment failure"
+  teardown
+}
+
+test_poow_denies_sibling_worktree() {
+  setup
+  local cwd="/Users/x/proj/.claude/worktrees/agent-aaa"
+  local sibling="/Users/x/proj/.claude/worktrees/agent-bbb/server/ws.ts"
+  local out
+  out=$(run_hook_with_input "$(poow_input "$cwd" Edit "$sibling")" "$POOWW")
+  assert_contains "$out" "deny" "poow: writes into a sibling worktree are denied"
+  teardown
+}
+
+test_poow_denies_dotdot_traversal() {
+  setup
+  local cwd="/Users/x/proj/.claude/worktrees/agent-aaa"
+  local out
+  out=$(run_hook_with_input "$(poow_input "$cwd" Edit "$cwd/../../../server/ws.ts")" "$POOWW")
+  assert_contains "$out" "deny" "poow: '..' traversal in path is denied"
+  assert_contains "$out" "\.\." "poow: deny reason calls out the .. token"
+  teardown
+}
+
+test_poow_handles_cwd_in_worktree_subdir() {
+  setup
+  # Worker may cd into a subdirectory of its worktree (e.g., server/).
+  # Containment must be against the worktree root, not the subdir.
+  local cwd="/Users/x/proj/.claude/worktrees/agent-aaa/server"
+  local out
+  out=$(run_hook_with_input "$(poow_input "$cwd" Edit "/Users/x/proj/.claude/worktrees/agent-aaa/tests/foo.test.ts")" "$POOWW")
+  assert_eq "$out" "" "poow: peer dir of cwd inside same worktree is allowed"
+  teardown
+}
+
+test_poow_denies_notebook_path_to_main() {
+  setup
+  local cwd="/Users/x/proj/.claude/worktrees/agent-aaa"
+  local out
+  out=$(run_hook_with_input "$(poow_input_notebook "$cwd" /Users/x/proj/notebooks/main.ipynb)" "$POOWW")
+  assert_contains "$out" "deny" "poow: NotebookEdit absolute-to-main denied via notebook_path"
+  teardown
+}
+
+test_poow_fails_open_on_malformed_json() {
+  setup
+  local out
+  out=$(run_hook_with_input "not json {{" "$POOWW")
+  # Malformed JSON: jq returns empty for missing fields, the hook
+  # treats empty cwd/target as "nothing to validate" and allows.
+  assert_eq "$out" "" "poow: malformed JSON does not block (fail open)"
+  teardown
+}
+
+# ============================================================
 # Runner — auto-discovers all test_* functions
 # ============================================================
 

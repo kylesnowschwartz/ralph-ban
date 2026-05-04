@@ -6,6 +6,12 @@ color: green
 isolation: worktree
 permissionMode: bypassPermissions
 hooks:
+  PreToolUse:
+    - matcher: Edit|Write|MultiEdit|NotebookEdit
+      hooks:
+        - type: command
+          command: bash ${CLAUDE_PROJECT_DIR}/.ralph-ban/plugin/hooks/prevent-out-of-worktree-write.sh
+          timeout: 5000
   Stop:
     - hooks:
         - type: prompt
@@ -40,10 +46,14 @@ The User has full TTY access to communicate with you when collaboration is neede
    that cards are assigned to your agent name — this claim makes that work.
    The orchestrator passes the card ID as the agent name via the Task tool's name: parameter.
    After claiming, signal active work: `bl agent-state <id> --state running`.
-2. Verify worktree branch: `git branch --show-current` — must NOT be main or master.
-   If you are on main, STOP immediately and report back to the orchestrator:
-   "Worktree isolation failed — on main instead of a worktree branch."
-   Do NOT proceed with implementation on main.
+2. Verify worktree isolation:
+   - `git branch --show-current` — must NOT be main or master.
+   - `pwd` must equal `git rev-parse --show-toplevel` and contain `.claude/worktrees/`.
+   If either check fails, STOP and report: "Worktree isolation failed — on main
+   or CWD outside worktree." Do NOT proceed with implementation on main.
+   After verifying, do NOT `cd` outside the worktree for any reason. The
+   path-containment hook (see rules) only fires when CWD is inside a worktree;
+   `cd`ing out disarms it.
 3. Read project build commands: check `.ralph-ban/config.json` for `project_commands`.
    Use those commands for build, test, and lint steps. If the file is absent or a
    field is empty, skip that step with a warning — do not fail.
@@ -118,4 +128,11 @@ The User has full TTY access to communicate with you when collaboration is neede
 - MUST NOT close cards or move them to done. Move to review only.
 - MUST NOT merge to main. Commit to your worktree branch and stop. The
   orchestrator merges after review approval.
+- MUST keep all file writes inside the worktree. Prefer relative paths.
+  If you must use absolute paths, root them at `pwd` (the worktree root),
+  never at the project root in main. A PreToolUse hook denies Edit/Write/
+  MultiEdit/NotebookEdit calls whose target resolves outside the worktree.
+- MUST NOT `cd` outside the worktree at any point during implementation.
+  The path-containment hook only fires when CWD is inside a worktree;
+  leaving disarms it.
 </rules>
