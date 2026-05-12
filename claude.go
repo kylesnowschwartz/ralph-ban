@@ -199,6 +199,15 @@ func buildClaudeArgs(model, prompt, resume string, resumeSet, cont, plan bool, p
 	// Pass through any claude-native flags (e.g. --dangerously-skip-permissions).
 	args = append(args, passthrough...)
 
+	// Pin worktree.baseRef to "head" so subagent worktrees (Agent isolation: "worktree")
+	// branch from local HEAD, not origin/<default>. The orchestrator merges card
+	// branches into local main with --ff-only and never pushes between batches, so
+	// origin/main is arbitrarily stale; workers branching from it would miss
+	// already-merged sibling cards in their baseline. Placed after passthrough so a
+	// user-supplied --settings (last-wins or deep-merge in claude's parser) does not
+	// silently override the pin.
+	args = append(args, "--settings", `{"worktree":{"baseRef":"head"}}`)
+
 	// Initial prompt as positional argument. Skipped for existing sessions —
 	// they continue where they left off.
 	if !existingSession {

@@ -4,8 +4,25 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
+
+// pinJSON is the worktree.baseRef pin emitted by buildClaudeArgs on every
+// session. See claude.go for why — the orchestrator never pushes between
+// batches, so origin/main is arbitrarily stale and subagent worktrees must
+// branch from local HEAD instead.
+const pinJSON = `{"worktree":{"baseRef":"head"}}`
+
+// withPin builds a wantArgs slice by appending the --settings pin in the same
+// position buildClaudeArgs emits it: after all flags and passthrough, before
+// any positional prompt. Pass the positional prompt as the optional second arg.
+func withPin(flags []string, prompt ...string) []string {
+	out := append([]string{}, flags...)
+	out = append(out, "--settings", pinJSON)
+	out = append(out, prompt...)
+	return out
+}
 
 // TestParseClaudeFlags exercises the full CLI parsing pipeline end-to-end:
 // splitAtDoubleDash -> normalizeOptionalFlag -> flag.Parse -> fs.Visit -> buildClaudeArgs.
@@ -24,73 +41,73 @@ func TestParseClaudeFlags(t *testing.T) {
 		{
 			name:     "defaults (no positional prompt — agent has initialPrompt)",
 			args:     nil,
-			wantArgs: []string{"--agent", "rb-orchestrator"},
+			wantArgs: withPin([]string{"--agent", "rb-orchestrator"}),
 			wantName: "claude",
 		},
 		{
 			name:     "custom prompt as flag",
 			args:     []string{"--prompt", "do something"},
-			wantArgs: []string{"--agent", "rb-orchestrator", "do something"},
+			wantArgs: withPin([]string{"--agent", "rb-orchestrator"}, "do something"),
 			wantName: "claude",
 		},
 		{
 			name:     "custom prompt as positional arg",
 			args:     []string{"assess the board"},
-			wantArgs: []string{"--agent", "rb-orchestrator", "assess the board"},
+			wantArgs: withPin([]string{"--agent", "rb-orchestrator"}, "assess the board"),
 			wantName: "claude",
 		},
 		{
 			name:     "model override",
 			args:     []string{"--model", "sonnet"},
-			wantArgs: []string{"--agent", "rb-orchestrator", "--model", "sonnet"},
+			wantArgs: withPin([]string{"--agent", "rb-orchestrator", "--model", "sonnet"}),
 			wantName: "claude",
 		},
 		{
 			name:     "resume with ID",
 			args:     []string{"--resume", "abc-123"},
-			wantArgs: []string{"--resume", "abc-123"},
+			wantArgs: withPin([]string{"--resume", "abc-123"}),
 			wantName: "claude",
 		},
 		{
 			name:     "resume without ID opens picker",
 			args:     []string{"--resume"},
-			wantArgs: []string{"--resume"},
+			wantArgs: withPin([]string{"--resume"}),
 			wantName: "claude",
 		},
 		{
 			name:     "continue",
 			args:     []string{"--continue"},
-			wantArgs: []string{"--continue"},
+			wantArgs: withPin([]string{"--continue"}),
 			wantName: "claude",
 		},
 		{
 			name:     "resume ignores custom prompt",
 			args:     []string{"--resume", "abc-123", "--prompt", "ignored"},
-			wantArgs: []string{"--resume", "abc-123"},
+			wantArgs: withPin([]string{"--resume", "abc-123"}),
 			wantName: "claude",
 		},
 		{
 			name:     "continue ignores custom prompt",
 			args:     []string{"--continue", "--prompt", "ignored"},
-			wantArgs: []string{"--continue"},
+			wantArgs: withPin([]string{"--continue"}),
 			wantName: "claude",
 		},
 		{
 			name:     "resume beats continue",
 			args:     []string{"--resume", "abc-123", "--continue"},
-			wantArgs: []string{"--resume", "abc-123"},
+			wantArgs: withPin([]string{"--resume", "abc-123"}),
 			wantName: "claude",
 		},
 		{
 			name:     "passthrough flags",
 			args:     []string{"--", "--dangerously-skip-permissions"},
-			wantArgs: []string{"--agent", "rb-orchestrator", "--dangerously-skip-permissions"},
+			wantArgs: withPin([]string{"--agent", "rb-orchestrator", "--dangerously-skip-permissions"}),
 			wantName: "claude",
 		},
 		{
 			name:     "resume with model and passthrough",
 			args:     []string{"--resume", "abc-123", "--model", "sonnet", "--", "--verbose"},
-			wantArgs: []string{"--resume", "abc-123", "--model", "sonnet", "--verbose"},
+			wantArgs: withPin([]string{"--resume", "abc-123", "--model", "sonnet", "--verbose"}),
 			wantName: "claude",
 		},
 		{
@@ -107,14 +124,14 @@ func TestParseClaudeFlags(t *testing.T) {
 		{
 			name:     "plan mode defaults (no positional prompt — agent has initialPrompt)",
 			args:     []string{"--plan"},
-			wantArgs: []string{"--agent", "rb-planner"},
+			wantArgs: withPin([]string{"--agent", "rb-planner"}),
 			wantName: "claude",
 			wantPlan: true,
 		},
 		{
 			name:     "plan mode with custom prompt",
 			args:     []string{"--plan", "add card filtering"},
-			wantArgs: []string{"--agent", "rb-planner", "add card filtering"},
+			wantArgs: withPin([]string{"--agent", "rb-planner"}, "add card filtering"),
 			wantName: "claude",
 			wantPlan: true,
 		},
@@ -126,13 +143,13 @@ func TestParseClaudeFlags(t *testing.T) {
 		{
 			name:     "plan with resume skips agent",
 			args:     []string{"--plan", "--resume", "abc-123"},
-			wantArgs: []string{"--resume", "abc-123"},
+			wantArgs: withPin([]string{"--resume", "abc-123"}),
 			wantName: "claude",
 		},
 		{
 			name:     "plan with continue skips agent",
 			args:     []string{"--plan", "--continue"},
-			wantArgs: []string{"--continue"},
+			wantArgs: withPin([]string{"--continue"}),
 			wantName: "claude",
 		},
 	}
@@ -236,14 +253,7 @@ func TestBuildClaudeArgs_PluginDir(t *testing.T) {
 		}
 
 		args := buildClaudeArgs("", "", "", false, false, false, nil)
-		found := false
-		for _, a := range args {
-			if a == "--plugin-dir" {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(args, "--plugin-dir") {
 			t.Errorf("expected --plugin-dir in args when plugin exists, got: %v", args)
 		}
 	})
@@ -253,13 +263,71 @@ func TestBuildClaudeArgs_PluginDir(t *testing.T) {
 		t.Chdir(dir)
 
 		args := buildClaudeArgs("", "", "", false, false, false, nil)
-		for _, a := range args {
-			if a == "--plugin-dir" {
-				t.Errorf("expected no --plugin-dir when plugin absent, got: %v", args)
-				break
-			}
+		if slices.Contains(args, "--plugin-dir") {
+			t.Errorf("expected no --plugin-dir when plugin absent, got: %v", args)
 		}
 	})
+}
+
+// TestBuildClaudeArgs_WorktreeBaseRefPin verifies that --settings with the
+// worktree.baseRef pin is emitted on every session and lands after passthrough
+// flags. Position matters: claude's parser handles a duplicated --settings as
+// last-occurrence-wins (or deep-merge); placing our pin after user passthrough
+// ensures it cannot be silently overridden.
+func TestBuildClaudeArgs_WorktreeBaseRefPin(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	t.Run("pin emitted on default session", func(t *testing.T) {
+		args := buildClaudeArgs("", "", "", false, false, false, nil)
+		assertPinPresent(t, args)
+	})
+
+	t.Run("pin emitted after passthrough", func(t *testing.T) {
+		// Simulate a user passing their own --settings via -- passthrough.
+		// Our pin must appear AFTER theirs so it wins under last-occurrence
+		// or deep-merge semantics.
+		passthrough := []string{"--settings", `{"worktree":{"baseRef":"fresh"}}`}
+		args := buildClaudeArgs("", "", "", false, false, false, passthrough)
+
+		userIdx, pinIdx := -1, -1
+		for i := 0; i < len(args)-1; i++ {
+			if args[i] != "--settings" {
+				continue
+			}
+			switch args[i+1] {
+			case `{"worktree":{"baseRef":"fresh"}}`:
+				userIdx = i
+			case pinJSON:
+				pinIdx = i
+			}
+		}
+		if userIdx < 0 || pinIdx < 0 {
+			t.Fatalf("expected both user --settings and pin --settings in args, got: %v", args)
+		}
+		if pinIdx < userIdx {
+			t.Errorf("pin --settings (idx=%d) must appear after user --settings (idx=%d): %v", pinIdx, userIdx, args)
+		}
+	})
+
+	t.Run("pin emitted on resume", func(t *testing.T) {
+		args := buildClaudeArgs("", "", "abc-123", true, false, false, nil)
+		assertPinPresent(t, args)
+	})
+
+	t.Run("pin emitted on plan mode", func(t *testing.T) {
+		args := buildClaudeArgs("", "", "", false, false, true, nil)
+		assertPinPresent(t, args)
+	})
+}
+
+func assertPinPresent(t *testing.T, args []string) {
+	t.Helper()
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--settings" && args[i+1] == pinJSON {
+			return
+		}
+	}
+	t.Errorf("expected --settings %s in args, got: %v", pinJSON, args)
 }
 
 func TestNormalizeOptionalFlag(t *testing.T) {

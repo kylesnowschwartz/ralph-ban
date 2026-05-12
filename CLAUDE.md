@@ -138,6 +138,12 @@ GOWORK=off go vet ./...
 
 This uses go.mod's published dependency versions instead of the local workspace.
 
+### Worktree base ref
+
+Claude Code's `worktree.baseRef` setting controls what `Agent(isolation: "worktree")` worktrees branch from. The harness default (since CC 2.1.133) is `fresh` (= `origin/<default-branch>`). ralph-ban pins this to `head` via `--settings '{"worktree":{"baseRef":"head"}}'` injected by `ralph-ban claude` (`claude.go:buildClaudeArgs`). The pin is appended *after* user passthrough flags so it wins under last-occurrence / deep-merge semantics.
+
+Without the pin, the orchestrator's flow breaks: it merges card branches into local `main` with `--ff-only` and never pushes between batches, so `origin/main` is arbitrarily stale. A worker branching from `origin/main` would miss already-merged sibling cards in its baseline build — and `_agents/rb-worker.md`'s rebase-onto-local-main step only recovers the history, not the broken initial state.
+
 ### Worktree context
 
 Git worktrees only contain tracked files. Gitignored directories are absent by default. A `post-checkout` git hook (installed by `ralph-ban init`) automatically symlinks configured directories from the main repo into new worktrees. Workers can read `.ralph-ban/config.json`, `.agent-history/`, and `.cloned-sources/` as if they were in the main repo.
