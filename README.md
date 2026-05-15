@@ -8,6 +8,8 @@ Terminal kanban built with [Bubble Tea](https://github.com/charmbracelet/bubblet
   <img src="demo.gif" alt="ralph-ban board demo" width="850" />
 </p>
 
+My mate said I should have named this Gas-Ban, but it's not nearly that weird. Planner helps break down the tasks `ralph-ban claude --plan`. Orchestrator delegates to workers, reviewers, and oracles `ralph-ban claude`. Keep Orchestrator working until ToDo/Doing/Review are moved to Done `ralph-ban claude --auto`. That's about it.
+
 ## Install
 
 Requires Go 1.25+.
